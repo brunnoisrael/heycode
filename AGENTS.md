@@ -4,7 +4,7 @@ Regras para qualquer agente de código (Claude Code, Codex, Aider) que trabalhe 
 
 ## O que é o projeto
 
-Alexa Agent Hub: uma Alexa que opera os agentes de código do PC do dono. Hoje é uma ponte de leitura (hooks do
+RoomCode (antes "Alexa Agent Hub"): uma Alexa que opera os agentes de código do PC do dono. Hoje é uma ponte de leitura (hooks do
 Claude Code alimentam um servidor FastAPI; uma skill Alexa consulta status e aprova comandos Bash com PIN).
 O destino é um plano de controle por voz com políticas sobre todos os agentes (Claude Code, Codex, Aider), que
 também inicia projetos novos. Desenho completo: `docs/superpowers/specs/2026-11-09-alexa-agent-hub-design.md`.

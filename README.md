@@ -1,60 +1,75 @@
-# 🎙️ claude-alexa-bridge
+# 🎙️ RoomCode
 
-Pergunte à Alexa o que o seu **Claude Code** está fazendo, ouça quando ele precisar de você e **aprove comandos por voz** (com PIN).
+**Converse com seus agentes de código pela Alexa.** Pergunte o que eles estão fazendo, aprove ou negue o que pedem, mande tarefas por voz e comece projetos novos, tudo com Claude Code, Codex e Aider, sem levantar da cadeira.
 
 ```
-Claude Code ──hooks──▶ Ponte local (FastAPI) ◀──túnel HTTPS── Skill Alexa (Lambda)
-                              │
-                              └──▶ push no celular (ntfy.sh)
+Alexa ──skill──▶ túnel HTTPS ──▶ Ponte RoomCode (FastAPI + SQLite)
+                                   ├── Motor de políticas (manual · auto · decisões)
+                                   ├── Servidor MCP  ◀── Claude Code · Codex
+                                   ├── Hooks do Claude Code (status, aprovação, próxima instrução)
+                                   └── Supervisor ──▶ claude · codex · aider (processos filhos)
 ```
 
-## Exemplos
-- "Alexa, pergunte ao meu agente qual o status" → *"No projeto meu-app, o agente está trabalhando, rodando o comando pytest."*
-- "Alexa, peça ao meu agente o resumo" → lê a última resposta do Claude.
-- "Alexa, pergunte ao meu agente se tem algo pendente" → *"O agente quer rodar: npm test. Diga aprovar com o seu PIN, ou negar."*
-- "Aprovar com o PIN 1234" → o hook `PermissionRequest` libera o comando.
+## O que dá para fazer
+
+| Você diz | Acontece |
+|---|---|
+| "Alexa, pergunte ao meu agente qual o status" | Lê o que o agente está fazendo agora |
+| "Modo auto" / "modo manual" / "modo decisões" | Troca a política de aprovação |
+| "Peça ao Codex para rodar os testes" | Ela relê o que entendeu; você diz "confirma" e a ponte inicia o agente |
+| "Crie o projeto painel com o Claude para acompanhar vendas" | Cria pasta, git, gates de spec e `AGENTS.md`, e o agente começa escrevendo a spec |
+| "Aviso no fim do ciclo" | Quando o agente termina, ela oferece ler a saída e receber a próxima instrução |
+
+## Modos de política
+
+- **manual:** a Alexa pergunta cada validação que o agente pede (aprovar exige PIN).
+- **auto:** aprova tudo. **Sem piso de segurança, sem PIN e sem expiração** (ADR 0002). Comandos como `rm -rf` e `git push --force` passam sem pergunta.
+- **decisões:** aprova o rotineiro e só pergunta o que é escolha de verdade.
+- **fim de ciclo:** opção à parte, combinável com qualquer modo.
+
+As regras valem globalmente, com exceção por agente ou projeto ("no projeto X, manual"), e ficam salvas em disco.
 
 ## Segurança (leia antes de usar)
-- Todos os endpoints exigem o header `x-secret`. **Nunca** exponha o servidor sem ele.
-- Aprovação por voz exige `BRIDGE_PIN`. Sem PIN, a função fica desligada. 3 erros bloqueiam por 5 min.
-- Só comandos `Bash` podem ser aprovados por voz, e nunca os destrutivos (`rm`, `sudo`, `git push`, `--force`, deploy, `curl | sh`...; veja `NEVER_BY_VOICE`). Esses caem no prompt normal.
-- Sem resposta em 40 s, o Claude Code mostra o prompt normal (ou você responde pelo Remote Control no celular).
-- A Alexa só lê a primeira palavra dos comandos no status, para não vazar segredos. Ao pedir aprovação, lê o comando para você saber o que está liberando.
-- Um PIN falado pode ser ouvido por quem está na sala. Use por sua conta e risco.
-- Considere Cloudflare Access no túnel e restrinja a Lambda ao seu Skill ID.
 
-## Instalação
+- Todos os endpoints exigem o segredo da ponte (`x-secret`); o `/mcp` aceita `Authorization: Bearer`. Nunca exponha o servidor sem ele.
+- A skill só aceita o **seu** usuário e o **seu** dispositivo Alexa (`ALLOWED_USER_ID`, `ALLOWED_DEVICE_ID`), e opcionalmente o ID da skill (`ALLOWED_SKILL_ID`).
+- Ditado: toda instrução é relida e só vai depois do "confirma"; limite de 300 caracteres; segredos saem mascarados em voz, push e log.
+- Aprovação por voz exige PIN (3 erros bloqueiam por 5 min). No modo manual e no decisões, comandos destrutivos nunca passam por voz.
+- **O modo auto e o supervisor executam código na sua máquina por comando de voz.** Um PIN falado pode ser ouvido por quem está na sala. Use por sua conta e risco.
+- O Codex desta máquina já roda com `approval_policy="never"`; o RoomCode não altera isso.
 
-### 1. Ponte local
-```bash
-cd bridge && pip install -r requirements.txt
-export BRIDGE_SECRET="$(openssl rand -hex 24)"   # guarde este valor
-export BRIDGE_PIN="1234"                          # troque
-export NTFY_TOPIC="um-nome-dificil-de-adivinhar"  # opcional
-uvicorn server:app --host 127.0.0.1 --port 8765
+## Como funciona por dentro
+
+- **Estado em SQLite** (políticas, sessões, aprovações, instruções, execuções): sobrevive a reinício. Aprovações pendentes expiram e execuções em andamento viram "interrompidas".
+- **Um único motor de políticas** (`bridge/policy`) decide `allow | deny | ask_voz | ask_teclado` para hooks, MCP e supervisor.
+- **Servidor MCP** (`roomcode`) com `registrar_status`, `pedir_decisao`, `reportar_fim` e `buscar_instrucao`.
+- **Supervisor** monta o comando de cada agente conforme a política (sandbox restrito fora do auto).
+- Aider não tem MCP nem hook de aprovação: só roda pelo supervisor.
+
+## Instalação rápida
+
+```powershell
+pip install -r bridge/requirements.txt
+powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1   # ponte como tarefa agendada (porta 8765)
+powershell -ExecutionPolicy Bypass -File scripts/setup-agents.ps1      # registra o MCP no Claude Code e no Codex
+powershell -ExecutionPolicy Bypass -File scripts/start-tunnel.ps1      # túnel HTTPS (rápido; veja o guia para o nomeado)
+powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1             # confere tudo numa porta livre
 ```
 
-### 2. Hooks do Claude Code
-Copie o conteúdo de `bridge/claude-settings.example.json` para `~/.claude/settings.json` (ajuste o caminho e use `python` no Windows). Exporte `BRIDGE_SECRET` no mesmo terminal em que roda o `claude`. Confira com `/hooks` dentro do Claude Code.
+Guia completo da skill Alexa, túnel nomeado, Home Assistant e rotação de segredo: [docs/DEPLOY-ALEXA.md](docs/DEPLOY-ALEXA.md).
 
-### 3. Túnel HTTPS
-```bash
-cloudflared tunnel --url http://127.0.0.1:8765   # teste rápido
-```
-Para uso contínuo, crie um túnel nomeado ou use Tailscale Funnel.
+## Como este projeto é desenvolvido
 
-### 4. Skill Alexa
-1. No [Alexa Developer Console](https://developer.amazon.com/alexa/console/ask): *Create Skill* → pt-BR → Custom → Alexa-hosted (Node.js).
-2. Aba *Build* → *JSON Editor*: cole `skill/interaction-model-pt-BR.json` → *Save* e *Build*.
-3. Aba *Code*: cole `skill/lambda/index.js`, adicione as dependências do `package.json` e defina `BRIDGE_URL` (URL do túnel) e `BRIDGE_SECRET`.
-4. *Deploy* → aba *Test* → "abrir meu agente".
+Gates obrigatórios, aplicados por hooks do git (`git config core.hooksPath .githooks`):
 
-A skill em modo de desenvolvimento funciona na sua conta sem certificação.
+1. **Spec aprovada** antes de código (`docs/superpowers/specs/`); commits `feat|fix|test|refactor` exigem o trailer `Spec:`.
+2. **ADR novo** (`docs/adr/`) para qualquer mudança de arquitetura.
+3. **Commits locais** pequenos, com testes (`python -m pytest`, `cd skill/lambda && npm test`).
 
-### Aviso proativo
-Skills custom não falam sozinhas. Combine com `NTFY_TOPIC` (push no celular) e, se quiser voz espontânea, Home Assistant + Alexa Media Player ou uma Rotina disparada por sensor virtual.
+Regras para agentes em [AGENTS.md](AGENTS.md). Decisões em [docs/adr/](docs/adr/).
 
 ## Ideias de evolução
-- Multi-sessão ("status do projeto X")
-- Modo "não perturbe"
-- Migrar para o Claude Agent SDK para callbacks de permissão nativos
+
+- Ditado de respostas livres para `pedir_decisao` (hoje é sim/não).
+- Multi-máquina e multiusuário.
+- Publicar a skill na loja da Alexa (hoje só modo desenvolvimento, na sua conta).

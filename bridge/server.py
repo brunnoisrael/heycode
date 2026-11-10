@@ -83,7 +83,7 @@ async def lifespan(_app):
         _mcp_current["app"] = previous
 
 
-app = FastAPI(title="claude-alexa-bridge", lifespan=lifespan)
+app = FastAPI(title="roomcode", lifespan=lifespan)
 _summaries: dict = {}  # sid -> ultimo resumo (o store regrava a sessao a cada evento)
 lock = {"fails": 0, "until": 0.0}
 
