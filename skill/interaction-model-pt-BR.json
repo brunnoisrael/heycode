@@ -17,13 +17,22 @@
         { "name": "SetModeIntent", "slots": [{ "name": "modo", "type": "MODO" }],
           "samples": ["modo {modo}", "coloca em modo {modo}", "deixa em {modo}", "muda para {modo}"] },
         { "name": "ReportOnEndIntent", "slots": [{ "name": "ligado", "type": "LIGADO" }],
-          "samples": ["avisar no fim do ciclo", "{ligado} aviso de fim de ciclo"] }
+          "samples": ["avisar no fim do ciclo", "{ligado} aviso de fim de ciclo"] },
+        { "name": "AskAgentIntent", "slots": [{ "name": "agente", "type": "AGENTE" }, { "name": "instrucao", "type": "AMAZON.SearchQuery" }],
+          "samples": ["peça ao {agente} {instrucao}", "manda o {agente} {instrucao}", "diz pro {agente} {instrucao}"] },
+        { "name": "ConfirmIntent", "samples": ["confirma", "pode mandar", "manda ver"] },
+        { "name": "CancelDictationIntent", "samples": ["esquece", "cancela isso"] }
       ],
       "types": [
         { "name": "MODO", "values": [
           { "id": "manual", "name": { "value": "manual" } },
           { "id": "auto", "name": { "value": "auto", "synonyms": ["automático", "tudo liberado"] } },
           { "id": "decisoes", "name": { "value": "decisões", "synonyms": ["decisoes"] } }
+        ] },
+        { "name": "AGENTE", "values": [
+          { "id": "claude", "name": { "value": "claude" } },
+          { "id": "codex", "name": { "value": "codex" } },
+          { "id": "aider", "name": { "value": "aider" } }
         ] },
         { "name": "LIGADO", "values": [
           { "id": "ligar", "name": { "value": "ligar" } },

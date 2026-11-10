@@ -97,6 +97,40 @@ const ReportOnEnd = {
   },
 };
 
+const AGENTS = ['claude', 'codex', 'aider'];
+function resolveAgent(envelope) {
+  const slot = Alexa.getSlot(envelope, 'agente');
+  if (!slot || !slot.value) return null;
+  const auth = ((slot.resolutions || {}).resolutionsPerAuthority || [])
+    .find(a => a.status && a.status.code === 'ER_SUCCESS_MATCH');
+  const id = auth && auth.values && auth.values[0] && auth.values[0].value && auth.values[0].value.id;
+  if (AGENTS.includes(id)) return id;
+  const v = norm(slot.value);
+  return AGENTS.includes(v) ? v : null;
+}
+
+const AskAgent = {
+  canHandle: h => isIntent(h, 'AskAgentIntent'),
+  async handle(h) {
+    const agent = resolveAgent(h.requestEnvelope);
+    const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
+    if (!agent || !text) {
+      return h.responseBuilder.speak('Diga o agente e a instrução. Por exemplo: peça ao claude para rodar os testes.')
+        .reprompt('Para qual agente, e qual instrução?').getResponse();
+    }
+    const d = await bridge('/dictation', 'POST', { agent, text });
+    return h.responseBuilder.speak(d.speech).reprompt('Confirma?').getResponse();
+  },
+};
+
+const simplePost = (intentName, path) => ({
+  canHandle: h => isIntent(h, intentName),
+  async handle(h) {
+    const d = await bridge(path, 'POST');
+    return h.responseBuilder.speak(d.speech).getResponse();
+  },
+});
+
 // Allowlist: só o dono (userId + deviceId). Lida do env a cada requisição.
 class AccessDenied extends Error {
   constructor(kind) { super('access denied: ' + kind); this.kind = kind; }
@@ -160,6 +194,7 @@ const Errors = {
 exports.handler = Alexa.SkillBuilders.custom()
   .addRequestInterceptors(AllowlistInterceptor)
   .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
-    simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd, Help, Stop, Fallback, SessionEnded)
+    simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd,
+    AskAgent, simplePost('ConfirmIntent', '/dictation/confirm'), simplePost('CancelDictationIntent', '/dictation/cancel'), Help, Stop, Fallback, SessionEnded)
   .addErrorHandlers(DeniedErrors, Errors)
   .lambda();
