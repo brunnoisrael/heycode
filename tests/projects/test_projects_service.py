@@ -191,3 +191,93 @@ def test_cancel(env):
     c.propose("app", "claude", "algo")
     assert "cancelado" in c.cancel()["speech"].lower()
     assert "run_id" not in c.confirm() and not fake.calls
+
+
+# ---- M2: pendencia global unica entre ditado e projeto ----
+def _linked(tmp_path):
+    from bridge.dictation.service import Dictation
+    clock, fake = Clock(), Fake()
+    runs = []
+    d = Dictation(lambda a, t, p: runs.append((a, t, p)) or 9, clock=clock)
+    c = ProjectCreator(str(tmp_path), REPO, fake, clock=clock)
+    from bridge.projects.routes import make_router
+    make_router(c, d, lambda: None)  # a rota liga os dois sem editar server.py
+    return c, d, clock, fake, runs
+
+
+def test_projeto_depois_ditado_confirma_so_o_ditado(tmp_path):
+    c, d, _, fake, runs = _linked(tmp_path)
+    c.propose("Meu App", "claude", "um painel")
+    d.propose("codex", "faca x")
+    assert c.has_pending() is False
+    assert "run_id" in d.confirm() and runs == [("codex", "faca x", None)]
+    assert fake.calls == [] and not (tmp_path / "meu-app").exists()
+
+
+def test_ditado_depois_projeto_cancela_ditado(tmp_path):
+    c, d, _, fake, runs = _linked(tmp_path)
+    d.propose("codex", "faca x")
+    c.propose("Meu App", "claude", "um painel")
+    assert "run_id" not in d.confirm() and runs == []
+    assert "run_id" in c.confirm()
+
+
+def test_projeto_expirado_ha_1h_nao_vence_ditado(tmp_path):
+    c, d, clock, fake, runs = _linked(tmp_path)
+    c.propose("Meu App", "claude", "um painel")
+    clock.t += 3600
+    assert c.has_pending() is False
+    d.propose("codex", "faca x")
+    assert not c.has_pending()
+    assert "run_id" in d.confirm() and len(runs) == 1 and fake.calls == []
+
+
+def test_has_pending_ignora_expirada(env):
+    c, clock = env[0], env[1]
+    c.propose("Meu App", "claude", "um painel")
+    assert c.has_pending() is True
+    clock.t += 61
+    assert c.has_pending() is False
+
+
+# ---- B5: git do scaffold com timeout e sem assinatura ----
+def test_git_do_scaffold_usa_timeout_e_sem_gpg(tmp_path, monkeypatch):
+    import bridge.projects.service as svc
+    seen = []
+    real = subprocess.run
+
+    def spy(cmd, **kw):
+        seen.append((cmd, kw))
+        return real(cmd, **kw)
+
+    monkeypatch.setattr(svc.subprocess, "run", spy)
+    scaffold_project(str(tmp_path), "ok-proj", REPO)
+    assert seen and all(kw.get("timeout") == 30 for _, kw in seen)
+    commit = [c for c, _ in seen if "commit" in c][0]
+    assert "commit.gpgsign=false" in commit and commit.index("-c") < commit.index("commit")
+
+
+def test_scaffold_com_timeout_falha_limpo(tmp_path, monkeypatch):
+    import bridge.projects.service as svc
+
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
+
+    monkeypatch.setattr(svc.subprocess, "run", boom)
+    with pytest.raises(subprocess.TimeoutExpired):
+        scaffold_project(str(tmp_path), "meio", REPO)
+    assert not (tmp_path / "meio").exists()
+
+
+def test_confirm_com_timeout_fala_erro_sem_pasta(env, monkeypatch):
+    import bridge.projects.service as svc
+    c, _, fake, root = env
+
+    def boom(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, 30)
+
+    monkeypatch.setattr(svc.subprocess, "run", boom)
+    c.propose("Meu App", "claude", "um painel")
+    r = c.confirm()
+    assert "run_id" not in r and "Não consegui criar" in r["speech"]
+    assert fake.calls == [] and not (root / "meu-app").exists()

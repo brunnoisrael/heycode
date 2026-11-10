@@ -3,7 +3,8 @@ from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
 from bridge.dictation.routes import make_router
-from bridge.dictation.service import Dictation, _mask
+from bridge.dictation.service import Dictation
+from bridge.policy.redact import mask_secrets
 
 SK = "sk-abcdef1234567890XYZ"
 
@@ -33,15 +34,24 @@ def env():
     ("token ghp_abcdefghijklmnopqrstuvwxyz0123456789 ok", "ghp_abcdefghijklmnopqrstuvwxyz0123456789"),
     ("chave AKIAIOSFODNN7EXAMPLE fim", "AKIAIOSFODNN7EXAMPLE"),
     ("conecte com password=hunter2 agora", "hunter2"),
+    ("pat github_pat_11ABCDEFG0abcdefghijklmnop_xyz fim", "github_pat_11ABCDEFG0abcdefghijklmnop_xyz"),
+    ("chave temporaria ASIAIOSFODNN7EXAMPLE fim", "ASIAIOSFODNN7EXAMPLE"),
 ])
-def test_mask(raw, secret):
-    out = _mask(raw)
-    assert secret not in out
-    assert "[segredo]" in out
+def test_ditado_mascara_pela_funcao_unificada(env, raw, secret):
+    d, _, _ = env
+    r = d.propose("claude", raw)
+    assert secret not in r["speech"]
+    assert "[segredo]" in r["speech"]
 
 
-def test_mask_plain_text_untouched():
-    assert _mask("corrija o bug do login") == "corrija o bug do login"
+def test_ditado_texto_normal_intacto(env):
+    d, _, _ = env
+    assert "corrija o bug do login" in d.propose("claude", "corrija o bug do login")["speech"]
+
+
+def test_ditado_nao_tem_mascara_local():
+    import bridge.dictation.service as svc
+    assert not hasattr(svc, "_mask") and svc.mask_secrets is mask_secrets
 
 
 def test_propose_masks_speech_but_keeps_original(env):

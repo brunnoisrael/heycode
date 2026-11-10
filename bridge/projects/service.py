@@ -55,12 +55,17 @@ Regras para qualquer agente de código (Claude Code, Codex, Aider) que trabalhe 
 _ADR_README = "# ADRs\n\nDecisões de arquitetura, um arquivo novo por decisão: `NNNN-titulo.md`.\n"
 
 
+GIT_TIMEOUT = 30
+
+
 def _git(path: str, *args: str) -> None:
-    subprocess.run(["git", "-C", path, *args], check=True, capture_output=True, text=True)
+    subprocess.run(["git", "-C", path, "-c", "commit.gpgsign=false", *args], check=True, capture_output=True,
+                   text=True, timeout=GIT_TIMEOUT)
 
 
 def _git_out(path: str, *args: str) -> str:
-    return subprocess.run(["git", "-C", path, *args], capture_output=True, text=True).stdout.strip()
+    return subprocess.run(["git", "-C", path, "-c", "commit.gpgsign=false", *args], capture_output=True, text=True,
+                          timeout=GIT_TIMEOUT).stdout.strip()
 
 
 def _copy_lf(src: str, dst: str) -> None:
@@ -138,17 +143,36 @@ class ProjectCreator:
         self._lock = threading.Lock()
         self._pending: dict | None = None
         self._expired = False
+        self._peer = None  # outro tipo de pendencia (Dictation): so uma vale por vez
+
+    def link(self, peer) -> None:
+        """Liga os dois lados da pendencia global unica (idempotente)."""
+        if self._peer is peer:
+            return
+        self._peer = peer
+        if hasattr(peer, "link"):
+            peer.link(self)
+
+    def discard(self) -> None:
+        with self._lock:
+            self._pending = None
+            self._expired = False
 
     def _exists(self, slug: str) -> bool:
         return os.path.lexists(os.path.join(self._root, slug))
 
     def has_pending(self) -> bool:
         with self._lock:
-            return self._pending is not None or self._expired
+            if self._pending is not None and self._clock() - self._pending["t"] > self._ttl:
+                self._pending = None  # expirada nunca vence
+            self._expired = False
+            return self._pending is not None
 
     def propose(self, name: str, agent: str, description: str) -> dict:
         agent = (agent or "").strip().lower()
         description = (description or "").strip()
+        if self._peer is not None:
+            self._peer.discard()  # fora do nosso lock: evita deadlock entre os dois lados
         with self._lock:
             self._pending = None
             self._expired = False

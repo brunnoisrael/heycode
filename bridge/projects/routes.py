@@ -11,6 +11,7 @@ class ProjectBody(BaseModel):
 def make_router(creator, dictation, auth) -> APIRouter:
     """/confirm e /cancel unificados: projeto pendente primeiro, depois ditado."""
     r = APIRouter(dependencies=[Depends(auth)])
+    creator.link(dictation)  # pendencia global unica: propor um tipo cancela o outro
 
     @r.post("/projects")
     def propose(b: ProjectBody):
