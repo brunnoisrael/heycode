@@ -125,11 +125,12 @@
             }
           ],
           "samples": [
-            "peça ao {agente} {instrucao}",
-            "manda o {agente} {instrucao}",
-            "diz pro {agente} {instrucao}",
-            "peça ao {agente} no projeto {projeto} {instrucao}",
-            "manda o {agente} no projeto {projeto} {instrucao}"
+            "peça ao {agente}",
+            "manda o {agente}",
+            "diz pro {agente}",
+            "fala com o {agente}",
+            "peça ao {agente} no projeto {projeto}",
+            "manda o {agente} no projeto {projeto}"
           ]
         },
         {
@@ -149,8 +150,9 @@
             }
           ],
           "samples": [
-            "crie o projeto {nome} com o {agente} para {descricao}",
-            "começa um projeto {nome} com o {agente} {descricao}"
+            "crie o projeto {nome} com o {agente}",
+            "começa um projeto {nome} com o {agente}",
+            "criar projeto {nome} com o {agente}"
           ]
         },
         {
@@ -285,6 +287,93 @@
           ]
         }
       ]
-    }
+    },
+    "dialog": {
+      "intents": [
+        {
+          "name": "AskAgentIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "agente",
+              "type": "AGENTE",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            },
+            {
+              "name": "instrucao",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.AskAgent.instrucao"
+              }
+            },
+            {
+              "name": "projeto",
+              "type": "NOME_PROJETO",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            }
+          ]
+        },
+        {
+          "name": "CreateProjectIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "nome",
+              "type": "NOME_PROJETO",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            },
+            {
+              "name": "agente",
+              "type": "AGENTE",
+              "confirmationRequired": false,
+              "elicitationRequired": false,
+              "prompts": {}
+            },
+            {
+              "name": "descricao",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.CreateProject.descricao"
+              }
+            }
+          ]
+        }
+      ],
+      "delegationStrategy": "SKILL_RESPONSE"
+    },
+    "prompts": [
+      {
+        "id": "Elicit.Slot.AskAgent.instrucao",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "Qual é a instrução?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.CreateProject.descricao",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "Para que serve o projeto?"
+          }
+        ]
+      }
+    ]
   }
 }

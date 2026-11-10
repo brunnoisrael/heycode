@@ -166,7 +166,8 @@ test('modelo: projeto opcional no AskAgent, CancelRunIntent e SendInstructionInt
   const m = require('../../interaction-model-pt-BR.json').interactionModel.languageModel;
   const ask = m.intents.find(i => i.name === 'AskAgentIntent');
   assert.deepStrictEqual(ask.slots.find(s => s.name === 'projeto'), { name: 'projeto', type: 'NOME_PROJETO' });
-  assert.ok(ask.samples.some(s => s.includes('{projeto}') && s.includes('{agente}') && s.includes('{instrucao}')));
+  assert.ok(ask.samples.some(s => s.includes('{projeto}') && s.includes('{agente}')));
+  assert.ok(!ask.samples.some(s => s.includes('{instrucao}')), 'a instrucao vem no turno seguinte');
   const cancel = m.intents.find(i => i.name === 'CancelRunIntent');
   assert.ok(cancel.samples.includes('cancela o agente') && cancel.samples.includes('para o agente'));
   const send = m.intents.find(i => i.name === 'SendInstructionIntent');

@@ -1,11 +1,52 @@
 const Alexa = require('ask-sdk-core');
 
+// Alexa-hosted não tem variáveis de ambiente no console: lá os valores vêm de env.json, ao lado deste
+// arquivo (nunca commitado). Variável já definida no ambiente vence o arquivo. Sem o arquivo, nada muda.
+function loadEnvFile(file) {
+  let values;
+  try {
+    values = require(file);
+  } catch (e) {
+    if (e.code === 'MODULE_NOT_FOUND') return;
+    throw e;
+  }
+  for (const [k, v] of Object.entries(values)) {
+    if (process.env[k] === undefined && v !== null && v !== '') process.env[k] = String(v);
+  }
+}
+loadEnvFile('./env.json');
+exports.loadEnvFile = loadEnvFile;
+
+// A Alexa-hosted roda em Node 16, que não tem fetch global. Este substituto cobre só o que bridge() usa:
+// método, cabeçalhos, corpo, sinal de abort, e na resposta ok, status e json().
+function httpFetch(url, { method = 'GET', headers = {}, body, signal } = {}) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const lib = u.protocol === 'http:' ? require('http') : require('https');
+    const h = { ...headers };
+    if (body !== undefined) h['content-length'] = Buffer.byteLength(body);
+    const req = lib.request(u, { method, headers: h, signal }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('error', reject);
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ ok: res.statusCode >= 200 && res.statusCode < 300, status: res.statusCode, json: async () => JSON.parse(text) });
+      });
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+exports.httpFetch = httpFetch;
+const doFetch = (url, opts) => (typeof fetch === 'function' ? fetch(url, opts) : httpFetch(url, opts));
+
 // Lidas a cada chamada: BRIDGE_URL ex.: https://agente.seudominio.com
 async function bridge(path, method = 'GET', body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 5000); // Alexa tem ~8s de limite
   try {
-    const r = await fetch(process.env.BRIDGE_URL + path, {
+    const r = await doFetch(process.env.BRIDGE_URL + path, {
       method,
       headers: { 'x-secret': process.env.BRIDGE_CONTROL_SECRET, 'content-type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
@@ -150,16 +191,34 @@ async function dictate(h, agent, text, project) {
   return rb.getResponse();
 }
 
+// Diálogo em dois turnos: a Alexa não aceita slot de frase (AMAZON.SearchQuery) junto de outro slot na
+// mesma frase. O primeiro turno traz agente/projeto (ou nome/agente); a frase livre vem no turno seguinte,
+// pedida com Dialog.ElicitSlot. O que já foi dito fica na sessão, caso a Alexa não devolva os slots.
+const getSaved = (h, key) => (h.attributesManager.getSessionAttributes() || {})[key] || {};
+function setSaved(h, key, value) {
+  const attrs = h.attributesManager.getSessionAttributes() || {};
+  if (value == null) delete attrs[key]; else attrs[key] = value;
+  h.attributesManager.setSessionAttributes(attrs);
+}
+
 const AskAgent = {
   canHandle: h => isIntent(h, 'AskAgentIntent'),
   async handle(h) {
-    const agent = resolveAgent(h.requestEnvelope);
+    const saved = getSaved(h, 'ask');
+    const agent = resolveAgent(h.requestEnvelope) || saved.agent || null;
+    const project = resolveProject(h.requestEnvelope) || saved.project || null;
     const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
-    if (!agent || !text) {
-      return h.responseBuilder.speak('Diga o agente e a instrução. Por exemplo: peça ao claude para rodar os testes.')
-        .reprompt('Para qual agente, e qual instrução?').getResponse();
+    if (!agent) {
+      return h.responseBuilder.speak('Diga o agente primeiro. Por exemplo: peça ao claude. Depois eu pergunto a instrução.')
+        .reprompt('Para qual agente: claude, codex ou aider?').getResponse();
     }
-    return dictate(h, agent, text, resolveProject(h.requestEnvelope));
+    if (!text) {
+      setSaved(h, 'ask', project ? { agent, project } : { agent });
+      return h.responseBuilder.speak(`Qual é a instrução para o ${agent}?`).reprompt('Qual é a instrução?')
+        .addElicitSlotDirective('instrucao').getResponse();
+    }
+    setSaved(h, 'ask', null);
+    return dictate(h, agent, text, project);
   },
 };
 
@@ -178,14 +237,21 @@ const SendInstruction = {
 const CreateProject = {
   canHandle: h => isIntent(h, 'CreateProjectIntent'),
   async handle(h) {
-    const agent = resolveAgent(h.requestEnvelope);
-    const name = String(Alexa.getSlotValue(h.requestEnvelope, 'nome') || '').trim();
+    const saved = getSaved(h, 'create');
+    const agent = resolveAgent(h.requestEnvelope) || saved.agent || null;
+    const name = String(Alexa.getSlotValue(h.requestEnvelope, 'nome') || '').trim() || saved.name || '';
     const description = String(Alexa.getSlotValue(h.requestEnvelope, 'descricao') || '').trim();
-    if (!agent || !name || !description) {
+    if (!agent || !name) {
       return h.responseBuilder
-        .speak('Diga o nome, o agente e a descrição. Por exemplo: crie o projeto meu app com o claude para um site de receitas.')
-        .reprompt('Qual o nome do projeto, o agente e a descrição?').getResponse();
+        .speak('Diga o nome e o agente. Por exemplo: crie o projeto meu app com o claude. Depois eu pergunto para que ele serve.')
+        .reprompt('Qual o nome do projeto e o agente?').getResponse();
     }
+    if (!description) {
+      setSaved(h, 'create', { name, agent });
+      return h.responseBuilder.speak(`Para que serve o projeto ${name}?`).reprompt('Para que serve o projeto?')
+        .addElicitSlotDirective('descricao').getResponse();
+    }
+    setSaved(h, 'create', null);
     const d = await bridge('/projects', 'POST', { name, agent, description });
     const rb = h.responseBuilder.speak(d.speech);
     if (d.ok !== false) rb.reprompt('Confirma?');

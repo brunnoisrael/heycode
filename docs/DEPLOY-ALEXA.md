@@ -28,7 +28,15 @@ powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
 
 ## 3. Variaveis de ambiente da Lambda
 
-Na aba **Code**, defina (Alexa-hosted: arquivo/seccao de variaveis de ambiente; na AWS Lambda propria: Configuration > Environment variables):
+A skill Alexa-hosted **nao tem tela de variaveis de ambiente**. Nela, os valores vao num arquivo `env.json` ao lado do `index.js`:
+
+1. Aba **Code > New File**, caminho `lambda/env.json`.
+2. Conteudo: um objeto JSON com as variaveis da tabela abaixo, por exemplo `{ "BRIDGE_URL": "https://...", "BRIDGE_CONTROL_SECRET": "...", "ALLOWED_SKILL_ID": "...", "ALLOWED_USER_ID": "", "ALLOWED_DEVICE_ID": "" }`.
+3. **Save** com o `env.json` aberto, depois **Deploy**.
+
+O `env.json` existe so no editor da skill; `skill/lambda/env.json` esta no `.gitignore` e nunca vai para o repositorio. Valor vazio e ignorado, e variavel de ambiente de verdade vence o arquivo. Na AWS Lambda propria, use Configuration > Environment variables e dispense o arquivo.
+
+A Alexa-hosted roda em Node 16, sem `fetch` global; o `index.js` usa `https` nativo nesse caso, entao nao e preciso instalar nada.
 
 | Variavel | Valor |
 |---|---|
@@ -50,6 +58,8 @@ O `applicationId` (formato `amzn1.ask.skill.<uuid>`) aparece no mesmo log, em `s
 
 Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a ponte.
 
+**O simulador da aba Test tem um `deviceId` proprio**, diferente do seu Echo, e so cabe um `ALLOWED_DEVICE_ID`. Com o ID do simulador, o Echo recebe "Acesso negado"; com o ID do Echo, o simulador recebe. Para pegar o do Echo, fale "Alexa, abrir meu agente" no aparelho e procure no CloudWatch a linha `ACESSO NEGADO. userId=... deviceId=...`.
+
 > **Reimporte o modelo de interacao.** Os intents novos (cancelar agente, avisar o agente aberto, projeto no ditado) so existem depois de colar de novo `skill/interaction-model-pt-BR.json` em **Build > JSON Editor**, **Save** e **Build Model**, e de fazer **Deploy** do novo `index.js`. Sem isso a Alexa nao reconhece as frases novas.
 
 ## 4. Ligar os hooks do Claude Code
@@ -65,7 +75,9 @@ Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a pont
 - Aprovar: diga "aprovar" com o PIN; negar: "negar". O PIN vem do `.env` (`BRIDGE_PIN`).
 - Cancelar: "cancela o agente" / "para o agente" interrompe a execucao mais recente em andamento ("Cancelei o agente claude." ou "Nenhum agente rodando.").
 - Avisar o agente aberto: "avise o agente aberto <instrucao>" (mesma releitura e "confirma" do ditado; entra na fila do Claude Code aberto).
-- Projeto no ditado: "peca ao codex no projeto <nome> para <tarefa>". Projeto que nao existe em `PROJECTS_ROOT` responde "Nao achei o projeto <nome>." e nada roda.
+- Ditado em dois turnos: diga "peca ao claude" (ou "manda o codex", "diz pro aider"); a Alexa pergunta "Qual e a instrucao para o claude?"; diga a instrucao; ela rele e pede "confirma". A Alexa nao aceita o agente e a instrucao livre na mesma frase.
+- Projeto no ditado: "peca ao codex no projeto <nome>", e a instrucao no turno seguinte. Projeto que nao existe em `PROJECTS_ROOT` responde "Nao achei o projeto <nome>." e nada roda.
+- Criar projeto: "crie o projeto <nome> com o claude"; a Alexa pergunta "Para que serve o projeto <nome>?"; diga a descricao e depois "confirma".
 - Modos: "modo manual", "modo automatico" (aprova tudo, sem PIN), "modo decisoes"; aviso de fim de ciclo: "avisar no fim do ciclo".
 
 ## 6. Ponte como servico fixo (tarefa agendada)
