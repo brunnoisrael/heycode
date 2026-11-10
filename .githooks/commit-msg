@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python scripts/gates/commit_msg.py "$1"

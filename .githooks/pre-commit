@@ -1,0 +1,2 @@
+#!/bin/sh
+exec python scripts/gates/pre_commit.py
