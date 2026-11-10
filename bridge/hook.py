@@ -13,9 +13,24 @@ def post(path, body, timeout):
         return json.load(r)
 
 
+def project_of(cwd):
+    return os.path.basename(str(cwd or "").rstrip("/\\")) or None
+
+
+def agent_of(argv):
+    if "--agent" in argv:
+        i = argv.index("--agent")
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return "claude"
+
+
 try:
+    argv = sys.argv[1:]
+    agent = agent_of(argv)
     data = json.load(sys.stdin)
-    if len(sys.argv) > 1 and sys.argv[1] == "approve":
+    data["agent"] = agent
+    if "approve" in argv:
         res = post("/approval", data, 55).get("decision")
         if res in ("allow", "deny"):
             decision = {"behavior": res}
@@ -25,6 +40,14 @@ try:
         # qualquer outra coisa: sem saída => Claude Code mostra o prompt normal
     else:
         post("/event", data, 3)
+        if data.get("hook_event_name") == "Stop":
+            body = {"agent": agent}
+            project = project_of(data.get("cwd"))
+            if project:
+                body["project"] = project
+            text = post("/instruction/next", body, 3).get("instruction")
+            if text:
+                print(json.dumps({"decision": "block", "reason": text}, separators=(",", ":")))
 except Exception:
     pass  # a ponte nunca pode quebrar o Claude Code
 sys.exit(0)
