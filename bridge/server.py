@@ -31,6 +31,10 @@ from pydantic import BaseModel, Field
 from policy.engine import decidir
 from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
 from store.db import Store
+from supervisor.manager import Supervisor
+from supervisor.routes import make_router as _runs_router
+from dictation.service import Dictation
+from dictation.routes import make_router as _dictation_router
 
 SECRET = os.environ["BRIDGE_SECRET"]            # obrigatório
 PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz desligada
@@ -40,8 +44,11 @@ APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
 DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
 DEFAULT_AGENT = "claude"
 
+PROJECTS_ROOT = os.environ.get("PROJECTS_ROOT", os.path.expanduser(os.path.join("~", "Documents", "Projetos")))
+
 store = Store(DB_PATH)
 store.expire_pending()  # reinicio: aprovacoes pendentes expiram, sem reanexar
+store.interrupt_running()  # reinicio: runs do supervisor em andamento viram "interrompida", sem reanexar
 
 
 mcp_mod = _load_mcp_module()
@@ -132,6 +139,36 @@ def last_assistant_text(path: str) -> str:
 
 def project_of(cwd) -> str:
     return os.path.basename(cwd or "") or "projeto"
+
+
+# --- Supervisor e ditado (fase 4) ---
+_unreported: list = []  # ids de runs terminadas cujo fim de ciclo ainda nao foi lido por voz
+
+
+def _on_run_finished(run: dict):
+    push(f"{run['agent']} terminou", short(run.get("summary") or "Tarefa concluida"))
+    if store.get_policy(run["agent"], run["project"])["report_on_end"]:
+        _unreported.append(run["id"])
+
+
+def _resolve_cwd(project):
+    if project:
+        path = os.path.join(PROJECTS_ROOT, project)
+        if os.path.isdir(path):
+            return path
+    return PROJECTS_ROOT
+
+
+supervisor = Supervisor(store, on_finish=_on_run_finished)
+
+
+def _start_run(agent: str, text: str, project) -> int:
+    cwd = _resolve_cwd(project)
+    mode = store.get_policy(agent, project or project_of(cwd))["mode"]
+    return supervisor.start(agent, text, cwd, mode)
+
+
+dictation = Dictation(_start_run)
 
 
 @app.post("/event", dependencies=[Depends(auth)])
@@ -251,6 +288,11 @@ def pending():
         return {"actionable": True,
                 "speech": f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
                           "Diga aprovar com o seu PIN, ou negar."}
+    if _unreported:
+        run = store.get_run(_unreported[0])
+        if run:
+            return {"actionable": False,
+                    "speech": f"O agente {run['agent']} terminou no projeto {run['project']}. Quer ouvir a saída?"}
     s = store.newest_session()
     if s and s["status"] == "aguardando":
         return {"actionable": False, "speech": f"O agente precisa de você no teclado: {s['detail']}"}
@@ -259,6 +301,12 @@ def pending():
 
 @app.get("/result", dependencies=[Depends(auth)])
 def result():
+    while _unreported:
+        run = store.get_run(_unreported.pop(0))
+        if run:
+            outcome = "falhou" if run["status"] == "falhou" else "terminou"
+            return {"speech": f"O agente {run['agent']} {outcome} no projeto {run['project']}. "
+                              f"Resultado: {run.get('summary') or 'sem resumo'}"}
     s = store.newest_session()
     if s and s["summary"]:
         return {"speech": f"Resumo do projeto {s['project']}: {s['summary']}"}
@@ -293,6 +341,9 @@ def decide(d: Decision):
 def health():
     return {"ok": True}
 
+
+app.include_router(_runs_router(supervisor, store, auth))
+app.include_router(_dictation_router(dictation, auth))
 
 # /mcp: mesma app, credencial propria (Bearer ou x-secret). Montado por ultimo: rotas acima tem precedencia.
 app.mount("/", mcp_mod.SecretAuth(_mcp_dispatch, SECRET))
