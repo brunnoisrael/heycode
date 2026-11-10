@@ -35,6 +35,8 @@ from supervisor.manager import Supervisor
 from supervisor.routes import make_router as _runs_router
 from dictation.service import Dictation
 from dictation.routes import make_router as _dictation_router
+from projects.service import ProjectCreator
+from projects.routes import make_router as _projects_router
 
 SECRET = os.environ["BRIDGE_SECRET"]            # obrigatório
 PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz desligada
@@ -169,6 +171,8 @@ def _start_run(agent: str, text: str, project) -> int:
 
 
 dictation = Dictation(_start_run)
+_TEMPLATE_REPO = os.path.dirname(_BRIDGE_DIR)  # este repositorio: fonte de scripts/gates e .githooks
+project_creator = ProjectCreator(PROJECTS_ROOT, _TEMPLATE_REPO, _start_run)
 
 
 @app.post("/event", dependencies=[Depends(auth)])
@@ -344,6 +348,7 @@ def health():
 
 app.include_router(_runs_router(supervisor, store, auth))
 app.include_router(_dictation_router(dictation, auth))
+app.include_router(_projects_router(project_creator, dictation, auth))
 
 # /mcp: mesma app, credencial propria (Bearer ou x-secret). Montado por ultimo: rotas acima tem precedencia.
 app.mount("/", mcp_mod.SecretAuth(_mcp_dispatch, SECRET))
