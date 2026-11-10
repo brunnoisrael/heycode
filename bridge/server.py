@@ -1,12 +1,32 @@
 """Servidor-ponte: recebe eventos dos hooks do Claude Code e responde a skill da Alexa."""
-import asyncio, hmac, json, os, re, sys, threading, time, urllib.request
+import asyncio, hmac, importlib.util, json, os, re, sys, threading, time, urllib.request
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # `uvicorn server:app` e testes
+_BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _load_mcp_module():
+    """Carrega bridge/mcp/server.py sem deixar o pacote `bridge/mcp` fazer sombra ao SDK `mcp`."""
+    saved = sys.path[:]
+    try:  # importa o SDK com bridge/ (e cwd == bridge/) fora do sys.path; depois fica em sys.modules
+        sys.path[:] = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _BRIDGE_DIR]
+        for name in [n for n in sys.modules if n == "mcp" or n.startswith("mcp.")]:
+            if os.path.abspath(getattr(sys.modules[name], "__file__", "") or "").startswith(os.path.join(_BRIDGE_DIR, "mcp")):
+                del sys.modules[name]  # sombra de import anterior
+        import mcp.server.fastmcp  # noqa: F401
+    finally:
+        sys.path[:] = saved
+    spec = importlib.util.spec_from_file_location("roomcode_mcp", os.path.join(_BRIDGE_DIR, "mcp", "server.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+sys.path.insert(0, _BRIDGE_DIR)  # `uvicorn server:app` e testes
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from policy.engine import decidir
 from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
@@ -24,10 +44,32 @@ store = Store(DB_PATH)
 store.expire_pending()  # reinicio: aprovacoes pendentes expiram, sem reanexar
 
 
+mcp_mod = _load_mcp_module()
+_tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT)
+_mcp_current = {"app": None}  # sub-app MCP da execucao atual do lifespan (o gerenciador de sessao roda uma vez so)
+
+
+async def _mcp_dispatch(scope, receive, send):
+    sub = _mcp_current["app"]
+    if sub is None:  # fora do lifespan (ex.: TestClient sem `with`)
+        from starlette.responses import PlainTextResponse
+        await PlainTextResponse("mcp indisponivel", status_code=503)(scope, receive, send)
+        return
+    await sub(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(_app):
     store.expire_pending()
-    yield
+    # Mount nao executa o lifespan do sub-app: o gerenciador de sessao do MCP sobe junto com a app.
+    mcp_server = mcp_mod.build_mcp(_tools)
+    previous = _mcp_current["app"]
+    _mcp_current["app"] = mcp_server.streamable_http_app()
+    try:
+        async with mcp_server.session_manager.run():
+            yield
+    finally:
+        _mcp_current["app"] = previous
 
 
 app = FastAPI(title="claude-alexa-bridge", lifespan=lifespan)
@@ -147,6 +189,28 @@ async def approval(r: ApprovalReq):
     return {"decision": decision if decision in ("allow", "deny") else "ask"}
 
 
+class InstructionReq(BaseModel):
+    text: str = Field(min_length=1, max_length=300)
+    agent: str = DEFAULT_AGENT
+    project: Optional[str] = None
+
+
+@app.post("/instruction", dependencies=[Depends(auth)])
+def add_instruction(i: InstructionReq):
+    return {"id": store.add_instruction(i.text, i.agent, i.project)}
+
+
+class NextInstructionReq(BaseModel):
+    agent: str
+    project: Optional[str] = None
+
+
+@app.post("/instruction/next", dependencies=[Depends(auth)])
+def next_instruction(r: NextInstructionReq):
+    item = store.pop_instruction(r.agent, r.project)
+    return {"instruction": item["text"] if item else None}
+
+
 class ModeReq(BaseModel):
     mode: Optional[Literal["manual", "auto", "decisoes"]] = None
     report_on_end: Optional[bool] = None
@@ -228,3 +292,7 @@ def decide(d: Decision):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+# /mcp: mesma app, credencial propria (Bearer ou x-secret). Montado por ultimo: rotas acima tem precedencia.
+app.mount("/", mcp_mod.SecretAuth(_mcp_dispatch, SECRET))

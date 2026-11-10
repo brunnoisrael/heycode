@@ -20,6 +20,9 @@ CREATE TABLE IF NOT EXISTS approvals (
     tool TEXT, command TEXT, session_id TEXT, decision TEXT, t REAL);
 CREATE TABLE IF NOT EXISTS history (
     id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, payload TEXT, t REAL);
+CREATE TABLE IF NOT EXISTS instructions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, agent TEXT NOT NULL,
+    project TEXT, delivered INTEGER NOT NULL DEFAULT 0, t REAL);
 """
 
 
@@ -129,6 +132,27 @@ class Store:
                 "UPDATE approvals SET decision='expired' WHERE decision IS NULL")
             self._db.commit()
             return cur.rowcount
+
+    # fila de instrucoes
+    def add_instruction(self, text: str, agent: str = "claude", project: str | None = None) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO instructions (text, agent, project, delivered, t) VALUES (?,?,?,0,?)",
+                (text, agent, project or None, time.time()))
+            self._db.commit()
+            return cur.lastrowid
+
+    def pop_instruction(self, agent: str, project: str | None) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT id, text, agent, project FROM instructions WHERE delivered=0 AND agent=?"
+                " AND (project IS NULL OR project=?) ORDER BY id LIMIT 1",
+                (agent, project or "")).fetchone()
+            if not row:
+                return None
+            self._db.execute("UPDATE instructions SET delivered=1 WHERE id=?", (row["id"],))
+            self._db.commit()
+            return dict(row)
 
     # historico
     def log(self, kind: str, payload: dict) -> None:
