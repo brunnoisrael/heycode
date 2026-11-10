@@ -15,8 +15,9 @@ from starlette.responses import PlainTextResponse
 from policy.engine import decidir
 
 
-def make_tools(store, approval_wait):
-    """Funcoes das ferramentas, ligadas a um Store. `approval_wait()` devolve o prazo em segundos."""
+def make_tools(store, approval_wait, has_pin=lambda: True):
+    """Funcoes das ferramentas, ligadas a um Store. `approval_wait()` devolve o prazo em segundos;
+    `has_pin()` diz se ha PIN (sem PIN ninguem aprova por voz)."""
 
     async def registrar_status(status: str, detail: str = "", agent: str = "agent", project: str = "projeto") -> dict:
         """Registra o estado atual do agente (ex.: trabalhando, aguardando) para a Alexa informar."""
@@ -27,6 +28,8 @@ def make_tools(store, approval_wait):
         """Pergunta ao dono (por voz) uma decisao sim/nao. Retorna answer: sim, nao ou sem_resposta."""
         if decidir(agent, project, "pedir_decisao", {"command": question}, store) == "allow":
             return {"answer": "sim", "auto": True}
+        if not has_pin():  # B2: sem PIN a voz nao responde; nao cria aprovacao nem prende o agente
+            return {"answer": "sem_resposta"}
         aid = store.add_approval(agent, project, "pedir_decisao", question, f"mcp:{agent}:{project}")
         deadline = time.time() + approval_wait()
         while time.time() < deadline:

@@ -55,7 +55,7 @@ def test_webhook_recebe_titulo_e_mensagem(client, hook, monkeypatch):
 def test_notification_do_agente_dispara_o_webhook(client, hook, monkeypatch):
     monkeypatch.setattr(client.server, "HA_WEBHOOK_URL", hook.url)
     client.post("/event", json={"hook_event_name": "Notification", "session_id": "a",
-                                "cwd": "C:/p/app", "message": "preciso de voce"})
+                                "cwd": "C:/p/app", "message": "preciso de voce"}, headers=client.agent_h)
     assert _wait_for(lambda: hook.received)
     assert hook.received[0]["message"] == "preciso de voce"
 

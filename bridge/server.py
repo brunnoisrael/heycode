@@ -33,13 +33,26 @@ from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via d
 from store.db import Store
 from policy.redact import mask_secrets
 from supervisor.manager import Supervisor
-from supervisor.routes import make_router as _runs_router
+from supervisor.routes import make_router as _runs_router, resolve_under_root
 from dictation.service import Dictation
 from dictation.routes import make_router as _dictation_router
 from projects.service import ProjectCreator
 from projects.routes import make_router as _projects_router
 
-SECRET = os.environ["BRIDGE_SECRET"]            # obrigatório
+MIN_SECRET_LEN = 32
+
+
+def _require_secret(name: str) -> str:
+    value = os.environ.get(name, "")
+    if len(value) < MIN_SECRET_LEN:  # M7: segredo vazio/curto abriria a ponte (compare_digest("", "") e verdadeiro)
+        raise SystemExit(f"{name} ausente ou com menos de {MIN_SECRET_LEN} caracteres: a ponte nao inicia.")
+    return value
+
+
+SECRET = _require_secret("BRIDGE_SECRET")                  # segredo de AGENTE: hooks e MCP (ADR 0014)
+CONTROL_SECRET = _require_secret("BRIDGE_CONTROL_SECRET")  # segredo de CONTROLE: so a Lambda
+if hmac.compare_digest(SECRET.encode(), CONTROL_SECRET.encode()):
+    raise SystemExit("BRIDGE_SECRET e BRIDGE_CONTROL_SECRET precisam ser diferentes.")
 PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz desligada
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")   # opcional: push no celular via ntfy.sh
 HA_WEBHOOK_URL = os.environ.get("HA_WEBHOOK_URL", "")  # opcional: webhook (Home Assistant) para voz espontanea
@@ -56,7 +69,7 @@ store.interrupt_running()  # reinicio: runs do supervisor em andamento viram "in
 
 
 mcp_mod = _load_mcp_module()
-_tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT)
+_tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT, lambda: bool(PIN))
 _mcp_current = {"app": None}  # sub-app MCP da execucao atual do lifespan (o gerenciador de sessao roda uma vez so)
 
 
@@ -88,9 +101,24 @@ _summaries: dict = {}  # sid -> ultimo resumo (o store regrava a sessao a cada e
 lock = {"fails": 0, "until": 0.0}
 
 
-def auth(x_secret: str = Header(default="")):
-    if not hmac.compare_digest(x_secret, SECRET):
+def _check(x_secret: str, expected: str):
+    if not hmac.compare_digest(x_secret.encode(), expected.encode()):
         raise HTTPException(401, "unauthorized")
+
+
+def auth_agent(x_secret: str = Header(default="")):
+    """Rotas dos agentes (hooks): /event, /approval, /instruction/next."""
+    _check(x_secret, SECRET)
+
+
+def auth_control(x_secret: str = Header(default="")):
+    """Rotas de controle (Lambda): todo o resto, exceto /health."""
+    _check(x_secret, CONTROL_SECRET)
+
+
+def say(text) -> str:
+    """Unico caminho de toda `speech`: nenhum segredo e lido em voz alta."""
+    return mask_secrets(text if isinstance(text, str) else str(text))
 
 
 def short(text, n=200):
@@ -124,8 +152,11 @@ def push(title: str, body: str):
 
 def describe_tool(e: dict) -> str:
     tool, inp = e.get("tool_name", ""), e.get("tool_input") or {}
-    if tool == "Bash":  # só a primeira palavra: evita ler segredos em voz alta
-        first = (inp.get("command") or "").split()[:1]
+    if tool == "Bash":  # só a primeira palavra (depois de VAR=valor): evita ler segredos em voz alta
+        words = (inp.get("command") or "").split()
+        while words and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]):
+            words.pop(0)
+        first = words[:1]
         return f"rodando o comando {first[0]}" if first else "rodando um comando"
     if tool in ("Edit", "Write", "MultiEdit"):
         return f"editando {os.path.basename(inp.get('file_path', 'um arquivo'))}"
@@ -167,29 +198,39 @@ def _on_run_finished(run: dict):
         _unreported.append(run["id"])
 
 
-def _resolve_cwd(project):
-    if project:
-        path = os.path.join(PROJECTS_ROOT, project)
-        if os.path.isdir(path):
-            return path
-    return PROJECTS_ROOT
+def _resolve_project(project):
+    """Pasta do projeto dentro de PROJECTS_ROOT (realpath + commonpath) ou None. Sem projeto: a raiz."""
+    root = os.path.realpath(PROJECTS_ROOT)
+    if not project:
+        return root
+    path = resolve_under_root(root, os.path.join(root, project))
+    return path if path and path != root else None  # "." nao e um projeto
+
+
+def _check_project(project):
+    """Fala de erro para o ditado quando o projeto citado nao existe (nunca cai na raiz); None se ok."""
+    if project and _resolve_project(project) is None:
+        return f"Não achei o projeto {project}."
+    return None
 
 
 supervisor = Supervisor(store, on_finish=_on_run_finished)
 
 
 def _start_run(agent: str, text: str, project) -> int:
-    cwd = _resolve_cwd(project)
-    mode = store.get_policy(agent, project or project_of(cwd))["mode"]
+    cwd = _resolve_project(project)
+    if cwd is None:
+        raise ValueError(f"projeto nao encontrado: {project}")
+    mode = store.get_policy(agent, project_of(cwd))["mode"]  # politica sempre do cwd final
     return supervisor.start(agent, text, cwd, mode)
 
 
-dictation = Dictation(_start_run)
+dictation = Dictation(_start_run, check_project=_check_project)
 _TEMPLATE_REPO = os.path.dirname(_BRIDGE_DIR)  # este repositorio: fonte de scripts/gates e .githooks
 project_creator = ProjectCreator(PROJECTS_ROOT, _TEMPLATE_REPO, _start_run)
 
 
-@app.post("/event", dependencies=[Depends(auth)])
+@app.post("/event", dependencies=[Depends(auth_agent)])
 def event(e: dict):
     sid = e.get("session_id", "?")
     agent = e.get("agent") or DEFAULT_AGENT
@@ -219,7 +260,7 @@ class ApprovalReq(BaseModel):
     agent: str = DEFAULT_AGENT
 
 
-@app.post("/approval", dependencies=[Depends(auth)])
+@app.post("/approval", dependencies=[Depends(auth_agent)])
 async def approval(r: ApprovalReq):
     cmd = (r.tool_input or {}).get("command", "")
     cmd = cmd if isinstance(cmd, str) else ""
@@ -250,7 +291,7 @@ class InstructionReq(BaseModel):
     project: Optional[str] = None
 
 
-@app.post("/instruction", dependencies=[Depends(auth)])
+@app.post("/instruction", dependencies=[Depends(auth_control)])
 def add_instruction(i: InstructionReq):
     return {"id": store.add_instruction(i.text, i.agent, i.project)}
 
@@ -260,7 +301,7 @@ class NextInstructionReq(BaseModel):
     project: Optional[str] = None
 
 
-@app.post("/instruction/next", dependencies=[Depends(auth)])
+@app.post("/instruction/next", dependencies=[Depends(auth_agent)])
 def next_instruction(r: NextInstructionReq):
     item = store.pop_instruction(r.agent, r.project)
     return {"instruction": item["text"] if item else None}
@@ -273,78 +314,112 @@ class ModeReq(BaseModel):
     project: Optional[str] = None
 
 
-@app.post("/mode", dependencies=[Depends(auth)])
+_MODE_NAMES = {"manual": "manual", "auto": "automático", "decisoes": "decisões"}
+
+
+def _scope(agent, project) -> str:
+    if project:
+        return f"para o projeto {project}"
+    if agent:
+        return f"para o agente {agent}"
+    return "para todos os agentes"
+
+
+def _mode_reply(agent, project, spoken: str) -> dict:
+    p = store.get_policy(agent, project)
+    return {"mode": p["mode"], "report_on_end": p["report_on_end"], "speech": say(spoken)}
+
+
+@app.post("/mode", dependencies=[Depends(auth_control)])
 def set_mode(m: ModeReq):
     store.set_policy(mode=m.mode, report_on_end=m.report_on_end, agent=m.agent, project=m.project)
-    return store.get_policy(m.agent, m.project)
+    scope, parts = _scope(m.agent, m.project), []
+    if m.mode:
+        parts.append(f"Modo {_MODE_NAMES[m.mode]} ativado {scope}.")
+    if m.report_on_end is not None:
+        parts.append("Aviso de fim de ciclo ligado." if m.report_on_end else "Aviso de fim de ciclo desligado.")
+    if not parts:
+        parts.append("Nada foi alterado.")
+    return _mode_reply(m.agent, m.project, " ".join(parts))
 
 
-@app.get("/mode", dependencies=[Depends(auth)])
+@app.get("/mode", dependencies=[Depends(auth_control)])
 def get_mode(agent: Optional[str] = None, project: Optional[str] = None):
-    return store.get_policy(agent, project)
+    p = store.get_policy(agent, project)
+    fim = "ligado" if p["report_on_end"] else "desligado"
+    return _mode_reply(agent, project,
+                       f"O modo atual é {_MODE_NAMES.get(p['mode'], p['mode'])}. Aviso de fim de ciclo {fim}.")
 
 
-@app.get("/status", dependencies=[Depends(auth)])
+@app.get("/status", dependencies=[Depends(auth_control)])
 def status():
     s = store.newest_session()
     if not s:
         return {"speech": "Nenhuma sessão do Claude Code ativa no momento."}
     waiting = store.pending_approvals()
     if waiting:
-        return {"speech": f"No projeto {s['project']}, o agente está esperando a sua aprovação."}
+        return {"speech": say(f"No projeto {s['project']}, o agente está esperando a sua aprovação.")}
     ago = int(time.time() - s["updated"])
     when = "agora" if ago < 10 else f"há {ago // 60} minutos" if ago >= 90 else f"há {ago} segundos"
     detail = f", {s['detail']}" if s["detail"] else ""
-    return {"speech": f"No projeto {s['project']}, o agente está {s['status']}{detail}. Última atividade {when}."}
+    return {"speech": say(f"No projeto {s['project']}, o agente está {s['status']}{detail}. Última atividade {when}.")}
 
 
-@app.get("/pending", dependencies=[Depends(auth)])
+@app.get("/pending", dependencies=[Depends(auth_control)])
 def pending():
     waiting = store.pending_approvals()
     if waiting:
         a = waiting[0]
-        return {"actionable": True,
-                "speech": f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
-                          "Diga aprovar com o seu PIN, ou negar."}
+        return {"actionable": True, "approval_id": a["id"],
+                "speech": say(f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
+                              "Diga aprovar com o seu PIN, ou negar.")}
     if _unreported:
         run = store.get_run(_unreported[0])
         if run:
-            return {"actionable": False,
-                    "speech": f"O agente {run['agent']} terminou no projeto {run['project']}. Quer ouvir a saída?"}
+            return {"actionable": False, "approval_id": None,
+                    "speech": say(f"O agente {run['agent']} terminou no projeto {run['project']}. Quer ouvir a saída?")}
     s = store.newest_session()
     if s and s["status"] == "aguardando":
-        return {"actionable": False, "speech": f"O agente precisa de você no teclado: {s['detail']}"}
-    return {"actionable": False, "speech": "Nada pendente. O agente não precisa de você agora."}
+        return {"actionable": False, "approval_id": None,
+                "speech": say(f"O agente precisa de você no teclado: {s['detail']}")}
+    return {"actionable": False, "approval_id": None, "speech": "Nada pendente. O agente não precisa de você agora."}
 
 
-@app.get("/result", dependencies=[Depends(auth)])
+@app.get("/result", dependencies=[Depends(auth_control)])
 def result():
     while _unreported:
         run = store.get_run(_unreported.pop(0))
         if run:
             outcome = "falhou" if run["status"] == "falhou" else "terminou"
-            return {"speech": f"O agente {run['agent']} {outcome} no projeto {run['project']}. "
-                              f"Resultado: {run.get('summary') or 'sem resumo'}"}
+            return {"speech": say(f"O agente {run['agent']} {outcome} no projeto {run['project']}. "
+                                  f"Resultado: {run.get('summary') or 'sem resumo'}")}
     s = store.newest_session()
     if s and s["summary"]:
-        return {"speech": f"Resumo do projeto {s['project']}: {s['summary']}"}
+        return {"speech": say(f"Resumo do projeto {s['project']}: {s['summary']}")}
     return {"speech": "Ainda não há um resumo disponível."}
 
 
 class Decision(BaseModel):
     approve: bool
     pin: str = ""
+    approval_id: Optional[int] = None
 
 
-@app.post("/decide", dependencies=[Depends(auth)])
+@app.post("/decide", dependencies=[Depends(auth_control)])
 def decide(d: Decision):
     if time.time() < lock["until"]:
         return {"speech": "Aprovação por voz bloqueada por alguns minutos. Use o teclado."}
     waiting = store.pending_approvals()
+    if d.approval_id is not None:  # A4: a decisao vale so para o pedido que o dono ouviu
+        seen = store.get_approval(d.approval_id)
+        if seen and seen["decision"] == "expired":
+            return {"speech": "Esse pedido já expirou."}
+        if not waiting or waiting[0]["id"] != d.approval_id:
+            return {"speech": "Esse pedido mudou. Pergunte de novo."}
     if not waiting:
         return {"speech": "Não há nada aguardando decisão."}
     if d.approve:
-        if not PIN or not hmac.compare_digest(d.pin, PIN):
+        if not PIN or not hmac.compare_digest(d.pin.encode(), PIN.encode()):
             lock["fails"] += 1
             if lock["fails"] >= 3:
                 lock.update(fails=0, until=time.time() + 300)
@@ -360,9 +435,9 @@ def health():
     return {"ok": True}
 
 
-app.include_router(_runs_router(supervisor, store, auth))
-app.include_router(_dictation_router(dictation, auth))
-app.include_router(_projects_router(project_creator, dictation, auth))
+app.include_router(_runs_router(supervisor, store, auth_control, PROJECTS_ROOT))
+app.include_router(_dictation_router(dictation, auth_control))
+app.include_router(_projects_router(project_creator, dictation, auth_control))
 
 # /mcp: mesma app, credencial propria (Bearer ou x-secret). Montado por ultimo: rotas acima tem precedencia.
 app.mount("/", mcp_mod.SecretAuth(_mcp_dispatch, SECRET))

@@ -14,11 +14,11 @@ def test_texto_invalido_422(client):
 def test_next_entrega_e_esvazia(client):
     i = client.post("/instruction", json={"text": "rode os testes"}).json()["id"]
     assert isinstance(i, int)
-    assert client.post("/instruction/next", json={"agent": "claude"}).json() == {"instruction": "rode os testes"}
-    assert client.post("/instruction/next", json={"agent": "claude"}).json() == {"instruction": None}
+    assert client.post("/instruction/next", json={"agent": "claude"}, headers=client.agent_h).json() == {"instruction": "rode os testes"}
+    assert client.post("/instruction/next", json={"agent": "claude"}, headers=client.agent_h).json() == {"instruction": None}
 
 
 def test_projeto_nao_vaza(client):
     client.post("/instruction", json={"text": "x", "project": "a"})
-    assert client.post("/instruction/next", json={"agent": "claude", "project": "b"}).json() == {"instruction": None}
-    assert client.post("/instruction/next", json={"agent": "claude", "project": "a"}).json() == {"instruction": "x"}
+    assert client.post("/instruction/next", json={"agent": "claude", "project": "b"}, headers=client.agent_h).json() == {"instruction": None}
+    assert client.post("/instruction/next", json={"agent": "claude", "project": "a"}, headers=client.agent_h).json() == {"instruction": "x"}

@@ -111,7 +111,7 @@ def test_cliente_mcp_real(client):
 
     async def go():
         async with streamablehttp_client(
-                f"http://127.0.0.1:{port}/mcp", headers={"Authorization": "Bearer s"}) as (r, w, _):
+                f"http://127.0.0.1:{port}/mcp", headers={"Authorization": f"Bearer {client.agent_h['x-secret']}"}) as (r, w, _):
             async with ClientSession(r, w) as sess:
                 await sess.initialize()
                 names = {t.name for t in (await sess.list_tools()).tools}
@@ -127,3 +127,29 @@ def test_cliente_mcp_real(client):
     assert names == {"registrar_status", "pedir_decisao", "reportar_fim", "buscar_instrucao"}
     assert content == {"instruction": "va"}
     assert client.server.store.newest_session()["project"] == "demo"
+
+
+def test_mcp_segredo_de_controle_recebe_401(client):
+    assert client.post("/mcp", headers=client.control_h, json={}).status_code == 401
+    bearer = {"Authorization": f"Bearer {client.control_h['x-secret']}"}
+    assert client.post("/mcp", headers={"x-secret": "", **bearer}, json={}).status_code == 401
+
+
+def test_mcp_segredo_de_agente_passa_da_auth(client):
+    assert client.post("/mcp", headers=client.agent_h, json={}).status_code != 401
+
+
+def test_b2_pedir_decisao_sem_pin_responde_sem_resposta_na_hora(client, monkeypatch):
+    """B2: sem PIN ninguem consegue aprovar por voz; nao cria aprovacao nem conta falha de PIN."""
+    monkeypatch.setattr(client.server, "PIN", "")
+    monkeypatch.setattr(client.server, "APPROVAL_WAIT", 30)
+    t0 = time.time()
+    assert run(client.server._tools.pedir_decisao("posso?", "a", "p")) == {"answer": "sem_resposta"}
+    assert time.time() - t0 < 2
+    assert client.server.store.pending_approvals() == []
+
+
+def test_b2_sem_pin_o_modo_auto_continua_respondendo_sim(client, monkeypatch):
+    monkeypatch.setattr(client.server, "PIN", "")
+    client.post("/mode", json={"mode": "auto"})
+    assert run(client.server._tools.pedir_decisao("posso?")) == {"answer": "sim", "auto": True}

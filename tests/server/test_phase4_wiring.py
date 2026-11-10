@@ -46,7 +46,7 @@ def test_rotas_novas_exigem_auth(client):
 
 
 def test_agente_desconhecido_em_runs_da_400(client):
-    assert client.post("/runs", json={"agent": "naoexiste", "prompt": "x"}).status_code == 400
+    assert client.post("/runs", json={"agent": "naoexiste", "prompt": "x", "cwd": client.server.PROJECTS_ROOT}).status_code == 400
 
 
 def test_confirmar_sem_ditado_nao_inicia_nada(client):
@@ -75,7 +75,8 @@ def test_reinicio_marca_runs_em_andamento_como_interrompidas(tmp_path, monkeypat
 
     from fastapi.testclient import TestClient
 
-    monkeypatch.setenv("BRIDGE_SECRET", "s")
+    monkeypatch.setenv("BRIDGE_SECRET", "a" * 40)
+    monkeypatch.setenv("BRIDGE_CONTROL_SECRET", "c" * 40)
     monkeypatch.setenv("BRIDGE_DB", str(tmp_path / "restart.db"))
     monkeypatch.setenv("BRIDGE_PIN", "1234")
     monkeypatch.setenv("NTFY_TOPIC", "")
@@ -89,6 +90,6 @@ def test_reinicio_marca_runs_em_andamento_como_interrompidas(tmp_path, monkeypat
     seed.close()
 
     server = importlib.reload(sys.modules["server"]) if "server" in sys.modules else importlib.import_module("server")
-    with TestClient(server.app, headers={"x-secret": "s"}) as c:
+    with TestClient(server.app, headers={"x-secret": "c" * 40}) as c:
         assert c.get(f"/runs/{run_id}").json()["status"] == "interrompida"
     server.store.close()

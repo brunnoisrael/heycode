@@ -4,7 +4,7 @@ import time
 
 def post_approval(c, cmd, tool="Bash", **extra):
     body = {"session_id": "a", "tool_name": tool, "tool_input": {"command": cmd}, "cwd": "/x/proj", **extra}
-    return c.post("/approval", json=body)
+    return c.post("/approval", json=body, headers=c.agent_h)
 
 
 def test_sem_secret_401(client):
@@ -44,20 +44,21 @@ def test_manual_destrutivo_pede_teclado(client):
 
 def test_decisoes_read_allow(client):
     client.post("/mode", json={"mode": "decisoes"})
-    r = client.post("/approval", json={"tool_name": "Read", "tool_input": {"file_path": "a"}})
+    r = client.post("/approval", json={"tool_name": "Read", "tool_input": {"file_path": "a"}},
+                    headers=client.agent_h)
     assert r.json() == {"decision": "allow"}
 
 
 def test_event_e_status(client):
     client.post("/event", json={"session_id": "s1", "cwd": "/a/meuproj", "hook_event_name": "UserPromptSubmit",
-                                "prompt": "faz algo"})
+                                "prompt": "faz algo"}, headers=client.agent_h)
     speech = client.get("/status").json()["speech"]
     assert "meuproj" in speech and "trabalhando" in speech
 
 
 def test_event_agent_padrao_e_result(client, tmp_path):
     client.post("/event", json={"session_id": "s1", "cwd": "/a/p", "hook_event_name": "Stop",
-                                "transcript_path": str(tmp_path / "nao-existe")})
+                                "transcript_path": str(tmp_path / "nao-existe")}, headers=client.agent_h)
     assert client.server.store.newest_session()["agent"] == "claude"
     assert client.get("/result").json()["speech"] == "Ainda não há um resumo disponível."
 
@@ -83,7 +84,7 @@ def test_decide_com_pin_libera(client, monkeypatch):
             break
         time.sleep(0.1)
     assert "ls" in client.get("/pending").json()["speech"]
-    client.post("/event", json={"session_id": "a", "cwd": "/x/proj", "hook_event_name": "PreToolUse"})
+    client.post("/event", json={"session_id": "a", "cwd": "/x/proj", "hook_event_name": "PreToolUse"}, headers=client.agent_h)
     assert "esperando" in client.get("/status").json()["speech"]
     assert client.post("/decide", json={"approve": True, "pin": "0000"}).json()["speech"] == "PIN incorreto."
     assert client.post("/decide", json={"approve": True, "pin": "1234"}).json()["speech"].startswith("Aprovado")

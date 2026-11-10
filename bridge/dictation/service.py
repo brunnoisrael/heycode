@@ -12,8 +12,10 @@ MAX_CHARS = 300
 AGENTS = ("claude", "codex", "aider")
 
 class Dictation:
-    def __init__(self, start_run: Callable[[str, str, str | None], int], ttl: float = 60.0, clock=time.time) -> None:
+    def __init__(self, start_run: Callable[[str, str, str | None], int], ttl: float = 60.0, clock=time.time,
+                 check_project: Callable[[str | None], str | None] | None = None) -> None:
         self._start_run = start_run
+        self._check_project = check_project  # fala de erro (projeto inexistente) ou None
         self._ttl = ttl
         self._clock = clock
         self._lock = threading.Lock()
@@ -54,6 +56,9 @@ class Dictation:
                 return {"speech": "Não entendi a instrução. Pode repetir?", "ok": False}
             if len(text) > MAX_CHARS:
                 return {"speech": f"A instrução passou de {MAX_CHARS} caracteres. Diga uma mais curta.", "ok": False}
+            bad = self._check_project(project) if self._check_project else None
+            if bad:
+                return {"speech": bad, "ok": False}
             self._pending = {"agent": agent, "text": text, "project": project, "t": self._clock()}
         return {"speech": f"Entendi, para o {agent}: {mask_secrets(text)}. Confirma?", "ok": True}
 
