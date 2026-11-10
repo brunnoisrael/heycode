@@ -9,9 +9,11 @@ import threading
 
 try:
     from bridge.policy.redact import mask_secrets
+    from bridge.supervisor.failure import failure_reason
     from bridge.supervisor.runner import build_command
 except ImportError:  # `uvicorn server:app` com bridge/ no sys.path
     from policy.redact import mask_secrets
+    from supervisor.failure import failure_reason
     from supervisor.runner import build_command
 
 SUMMARY_MAX = 400
@@ -128,17 +130,19 @@ class Supervisor:
     def _finish(self, run_id, agent, output, code, error, out_file) -> None:
         with self._lock:
             cancelled = run_id in self._cancelled
+        head = False  # resumo cortado pelo comeco (mensagem) ou pelo fim (cauda da saida)
         if cancelled:
             status, summary = "cancelada", _tail_lines(output)
         elif error is not None:
             status, summary = "falhou", error
         elif code != 0:
-            status, summary = "falhou", _tail_lines(output)
+            reason = failure_reason(agent, output)  # ADR 0017: a mensagem do agente, nao o rabo do JSON
+            status, summary, head = "falhou", reason or _tail_lines(output), bool(reason)
         else:
-            status, summary = "concluida", self._last_message(agent, output, out_file)
+            status, summary, head = "concluida", self._last_message(agent, output, out_file), True
         summary = mask_secrets(summary)
         if len(summary) > SUMMARY_MAX:
-            summary = summary[-SUMMARY_MAX:] if status != "concluida" else summary[:SUMMARY_MAX]
+            summary = summary[:SUMMARY_MAX] if head else summary[-SUMMARY_MAX:]
         self._store.update_run(run_id, status=status, summary=summary, exit_code=code)
         if self._on_finish:
             try:

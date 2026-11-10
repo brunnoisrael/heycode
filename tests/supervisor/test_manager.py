@@ -109,3 +109,52 @@ def test_cancel_mata_arvore_e_marca_cancelada():
 
 def test_status_inexistente():
     assert Supervisor(Store(), fake("pass")).status(5) is None
+
+
+# ---------- ADR 0017: resumo de falha legivel ----------
+
+def _falha(payload_expr, extra=""):
+    """Fake que imprime o JSON e sai com codigo 1, como o claude e o codex em erro de API."""
+    return fake(f"import json, sys\n{extra}\nprint(json.dumps({payload_expr}))\nsys.exit(1)")
+
+
+def test_falha_do_claude_grava_a_mensagem_e_nao_o_rabo_do_json():
+    code = ("{'type':'result','subtype':'success','is_error':True,'result':'API Error: 400 versao antiga',"
+            "'usage':{'input_tokens':0},'terminal_reason':'api_error','uuid':'f942b57e'}")
+    r = wait_done(sup := Supervisor(Store(), _falha(code)), sup.start("claude", "x", ".", "manual"))
+    assert r["status"] == "falhou" and r["exit_code"] == 1
+    assert r["summary"] == "API Error: 400 versao antiga"
+
+
+def test_falha_do_codex_grava_a_mensagem_do_evento():
+    code = ("{'type':'turn.failed','error':{'message':json.dumps({'type':'error','status':400,'error':"
+            "{'message':'modelo nao suportado','code':'model_not_found'}})}}")
+    r = wait_done(sup := Supervisor(Store(), _falha(code, "print('Reading additional input from stdin...')")),
+                  sup.start("codex", "x", ".", "manual"))
+    assert r["status"] == "falhou" and r["summary"] == "modelo nao suportado"
+
+
+def test_falha_do_aider_continua_com_a_cauda_da_saida():
+    code = "import sys\nprint('{\"result\": \"nao e do aider\"}')\nprint('erro de verdade')\nsys.exit(2)"
+    r = wait_done(sup := Supervisor(Store(), fake(code)), sup.start("aider", "x", ".", "manual"))
+    assert r["status"] == "falhou" and r["summary"].endswith("erro de verdade")
+
+
+def test_falha_do_claude_sem_json_cai_na_cauda():
+    code = "import sys\nprint('Invalid API key - Please run /login')\nsys.exit(1)"
+    r = wait_done(sup := Supervisor(Store(), fake(code)), sup.start("claude", "x", ".", "manual"))
+    assert r["status"] == "falhou" and "Please run /login" in r["summary"]
+
+
+def test_motivo_da_falha_e_mascarado_e_cortado_pelo_comeco():
+    code = "{'type':'result','is_error':True,'result':'INICIO token=abc123segredo ' + 'z'*900}"
+    r = wait_done(sup := Supervisor(Store(), _falha(code)), sup.start("claude", "x", ".", "manual"))
+    assert r["summary"].startswith("INICIO [segredo]") and "abc123segredo" not in r["summary"]
+    assert len(r["summary"]) == 400
+
+
+def test_parser_quebrado_nao_impede_a_finalizacao(monkeypatch):
+    import bridge.supervisor.manager as manager
+    monkeypatch.setattr(manager, "failure_reason", lambda agent, output: None)
+    r = wait_done(sup := Supervisor(Store(), _falha("{'result': 'x'}")), sup.start("claude", "x", ".", "manual"))
+    assert r["status"] == "falhou" and "result" in r["summary"]

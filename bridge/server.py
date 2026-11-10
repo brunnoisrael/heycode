@@ -33,6 +33,7 @@ from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via d
 from store.db import Store
 from policy.redact import mask_secrets
 from supervisor.manager import Supervisor
+from supervisor.failure import spoken_reason
 from supervisor.routes import make_router as _runs_router, resolve_under_root
 from dictation.service import Dictation
 from dictation.routes import make_router as _dictation_router
@@ -190,9 +191,32 @@ def project_of(cwd) -> str:
 # fim de ciclo nao lido: coluna runs.reported (ADR 0015), sobrevive a reinicio
 
 
+def _failure_speech(run: dict) -> str:
+    """Fala de uma run que falhou (ADR 0017): motivo curto, sem JSON cru; a mascara fica com `say`."""
+    base = f"O agente {run['agent']} falhou no projeto {run['project']}"
+    reason = spoken_reason(run.get("summary"))
+    if not reason:
+        return f"{base}. Não consegui identificar o motivo; veja a saída no computador."
+    return f"{base}: {reason}" + ("" if reason[-1] in ".!?" else ".")
+
+
+def _take_failure() -> str:
+    """Se o proximo aviso da fila for uma falha, marca como falado e devolve a fala; senao, ""."""
+    run = store.first_unreported()
+    if not run or run["status"] != "falhou":
+        return ""
+    store.mark_reported(run["id"])
+    return _failure_speech(run)
+
+
 def _on_run_finished(run: dict):
-    push(f"{run['agent']} terminou", short(run.get("summary") or "Tarefa concluida"))
-    if store.get_policy(run["agent"], run["project"])["report_on_end"]:
+    failed = run.get("status") == "falhou"
+    if failed:
+        push(f"{run['agent']} falhou", spoken_reason(run.get("summary")) or "Falhou sem motivo identificado")
+    else:
+        push(f"{run['agent']} terminou", short(run.get("summary") or "Tarefa concluida"))
+    # falha sempre entra na fila de voz; sucesso so com report_on_end (ADR 0017)
+    if failed or store.get_policy(run["agent"], run["project"])["report_on_end"]:
         store.mark_unreported(run["id"])
 
 
@@ -353,14 +377,16 @@ def get_mode(agent: Optional[str] = None, project: Optional[str] = None):
 def status():
     s = store.newest_session()
     if not s:
-        return {"speech": "Nenhuma sessão do Claude Code ativa no momento."}
+        return {"speech": say(_take_failure()) or "Nenhuma sessão do Claude Code ativa no momento."}
     waiting = store.pending_approvals()
     if waiting:
         return {"speech": say(f"No projeto {s['project']}, o agente está esperando a sua aprovação.")}
     ago = int(time.time() - s["updated"])
     when = "agora" if ago < 10 else f"há {ago // 60} minutos" if ago >= 90 else f"há {ago} segundos"
     detail = f", {s['detail']}" if s["detail"] else ""
-    return {"speech": say(f"No projeto {s['project']}, o agente está {s['status']}{detail}. Última atividade {when}.")}
+    failed = _take_failure()  # falha de run ainda nao falada vem antes do status da sessao (ADR 0017)
+    return {"speech": say(f"{failed} No projeto {s['project']}, o agente está {s['status']}{detail}. "
+                          f"Última atividade {when}.".strip())}
 
 
 @app.get("/pending", dependencies=[Depends(auth_control)])
@@ -371,6 +397,9 @@ def pending():
         return {"actionable": True, "approval_id": a["id"],
                 "speech": say(f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
                               "Diga aprovar com o seu PIN, ou negar.")}
+    failed = _take_failure()
+    if failed:
+        return {"actionable": False, "approval_id": None, "speech": say(failed)}
     run = store.first_unreported()
     if run:
         return {"actionable": False, "approval_id": None,
@@ -384,6 +413,9 @@ def pending():
 
 @app.get("/result", dependencies=[Depends(auth_control)])
 def result():
+    failed = _take_failure()
+    if failed:
+        return {"speech": say(failed)}
     run = store.first_unreported()
     if run:
         store.mark_reported(run["id"])
