@@ -1,0 +1,21 @@
+{
+  "interactionModel": {
+    "languageModel": {
+      "invocationName": "meu agente",
+      "intents": [
+        { "name": "AMAZON.CancelIntent", "samples": [] },
+        { "name": "AMAZON.HelpIntent", "samples": [] },
+        { "name": "AMAZON.StopIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
+        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "StatusIntent", "samples": ["status", "qual o status", "o que ele está fazendo", "o que está rolando", "como está indo", "em que pé está"] },
+        { "name": "PendingIntent", "samples": ["preciso fazer algo", "ele precisa de mim", "tem alguma pendência", "o que ele quer", "o que está pendente"] },
+        { "name": "ResultIntent", "samples": ["o que ele fez", "qual foi o resultado", "resumo", "me dá o resumo", "já terminou"] },
+        { "name": "ApproveIntent", "slots": [{ "name": "pin", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
+          "samples": ["aprovar", "aprovar com o pin {pin}", "aprovar pin {pin}", "pode aprovar", "autorizar", "autorizar com o pin {pin}"] },
+        { "name": "DenyIntent", "samples": ["negar", "recusar", "não aprovar", "bloquear"] }
+      ],
+      "types": []
+    }
+  }
+}
