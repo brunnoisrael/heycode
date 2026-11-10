@@ -18,6 +18,9 @@ Alexa ──skill──▶ túnel HTTPS ──▶ Ponte RoomCode (FastAPI + SQLi
 | "Modo auto" / "modo manual" / "modo decisões" | Troca a política de aprovação |
 | "Peça ao Codex para rodar os testes" | Ela relê o que entendeu; você diz "confirma" e a ponte inicia o agente |
 | "Crie o projeto painel com o Claude para acompanhar vendas" | Cria pasta, git, gates de spec e `AGENTS.md`, e o agente começa escrevendo a spec |
+| "Cancela o agente" / "para o agente" | Interrompe a execução mais recente em andamento |
+| "Avise o agente aberto: rode os testes" | Entra na fila do Claude Code aberto, com a mesma releitura e confirmação |
+| "Peça ao Codex no projeto painel para rodar os testes" | Ditado no projeto citado; projeto inexistente é recusado, nunca cai na raiz |
 | "Aviso no fim do ciclo" | Quando o agente termina, ela oferece ler a saída e receber a próxima instrução |
 
 ## Modos de política
@@ -31,7 +34,8 @@ As regras valem globalmente, com exceção por agente ou projeto ("no projeto X,
 
 ## Segurança (leia antes de usar)
 
-- Todos os endpoints exigem o segredo da ponte (`x-secret`); o `/mcp` aceita `Authorization: Bearer`. Nunca exponha o servidor sem ele.
+- **Dois segredos** (`x-secret`, mínimo de 32 caracteres, diferentes entre si). `BRIDGE_SECRET` é o de **agente**: vai nos hooks e no MCP e vale só em `/event`, `/approval`, `/instruction/next` e `/mcp` (que também aceita `Authorization: Bearer`). `BRIDGE_CONTROL_SECRET` é o de **controle**: fica só na Lambda e vale nas demais rotas. A Lambda **não** deve receber o segredo de agente. Nunca exponha o servidor sem eles.
+- O que a separação protege: um agente (ou conteúdo web que ele leu, por prompt injection) tem o segredo de agente no ambiente, mas com ele não consegue chamar `/mode` e ligar o modo auto sozinho, nem aprovar pedidos, nem iniciar execuções. Ela não protege contra quem já controla a sua máquina ou contra o modo auto em si (ADR 0002).
 - A skill só aceita o **seu** usuário e o **seu** dispositivo Alexa (`ALLOWED_USER_ID`, `ALLOWED_DEVICE_ID`), e opcionalmente o ID da skill (`ALLOWED_SKILL_ID`).
 - Ditado: toda instrução é relida e só vai depois do "confirma"; limite de 300 caracteres; segredos saem mascarados em voz, push e log.
 - Aprovação por voz exige PIN (3 erros bloqueiam por 5 min). No modo manual e no decisões, comandos destrutivos nunca passam por voz.
@@ -40,7 +44,7 @@ As regras valem globalmente, com exceção por agente ou projeto ("no projeto X,
 
 ## Como funciona por dentro
 
-- **Estado em SQLite** (políticas, sessões, aprovações, instruções, execuções): sobrevive a reinício. Aprovações pendentes expiram e execuções em andamento viram "interrompidas".
+- **Estado em SQLite** (políticas, sessões, aprovações, instruções, execuções, aviso de fim de ciclo não lido, resumo da sessão e trava de PIN): sobrevive a reinício (ADR 0015). Aprovações pendentes expiram e execuções em andamento viram "interrompidas", sem aviso de fim de ciclo.
 - **Um único motor de políticas** (`bridge/policy`) decide `allow | deny | ask_voz | ask_teclado` para hooks, MCP e supervisor.
 - **Servidor MCP** (`roomcode`) com `registrar_status`, `pedir_decisao`, `reportar_fim` e `buscar_instrucao`.
 - **Supervisor** monta o comando de cada agente conforme a política (sandbox restrito fora do auto).
@@ -56,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts/start-tunnel.ps1      # túnel 
 powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1             # confere tudo numa porta livre
 ```
 
-Guia completo da skill Alexa, túnel nomeado, Home Assistant e rotação de segredo: [docs/DEPLOY-ALEXA.md](docs/DEPLOY-ALEXA.md).
+Depois de atualizar, **reimporte o modelo de interação** (`skill/interaction-model-pt-BR.json`) no console da Alexa e faça Deploy da Lambda (que usa `BRIDGE_CONTROL_SECRET`). Guia completo da skill Alexa, túnel nomeado, Home Assistant e rotação de segredo: [docs/DEPLOY-ALEXA.md](docs/DEPLOY-ALEXA.md).
 
 ## Como este projeto é desenvolvido
 

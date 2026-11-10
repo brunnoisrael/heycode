@@ -50,6 +50,13 @@ def make_router(supervisor, store, auth, projects_root=None) -> APIRouter:
     def latest(agent: Optional[str] = None):
         return store.latest_run(agent)
 
+    @router.post("/runs/latest/cancel")
+    def cancel_latest():
+        run = store.latest_running()
+        if run and supervisor.cancel(run["id"]):
+            return {"speech": f"Cancelei o agente {run['agent']}."}
+        return {"speech": "Nenhum agente rodando."}
+
     @router.get("/runs/{run_id}")
     def get_run(run_id: int):
         run = supervisor.status(run_id)

@@ -12,7 +12,7 @@ powershell -ExecutionPolicy Bypass -File scripts\run-bridge.ps1
 powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
 ```
 
-- Na primeira execucao, `run-bridge.ps1` cria o `.env` (git-ignorado) com `BRIDGE_SECRET` (48 hex) e `BRIDGE_PIN` (4 digitos). Guarde os dois valores; nunca os commite.
+- Na primeira execucao, `run-bridge.ps1` cria o `.env` (git-ignorado) com **dois segredos** de 48 hex, `BRIDGE_SECRET` (segredo de **agente**: hooks e MCP) e `BRIDGE_CONTROL_SECRET` (segredo de **controle**: so a Lambda), mais `BRIDGE_PIN` (4 digitos). Guarde os tres valores; nunca os commite. A ponte nao inicia se um segredo tiver menos de 32 caracteres ou se os dois forem iguais.
 - A ponte escuta em `127.0.0.1:8765` (use `$env:BRIDGE_PORT` para outra porta nos dois scripts).
 - O tunel imprime uma URL `https://<nome>.trycloudflare.com`. Essa e a sua `BRIDGE_URL`. Ela **muda a cada execucao** do tunel (tunel rapido, sem conta); ao reiniciar, atualize a variavel na Lambda.
 - Teste: `curl <url>/health` deve responder `{"ok":true}` e `curl <url>/status` sem header deve dar 401.
@@ -33,7 +33,7 @@ Na aba **Code**, defina (Alexa-hosted: arquivo/seccao de variaveis de ambiente; 
 | Variavel | Valor |
 |---|---|
 | `BRIDGE_URL` | URL `https://...trycloudflare.com` do tunel (sem barra final) |
-| `BRIDGE_SECRET` | o mesmo valor do `.env` |
+| `BRIDGE_CONTROL_SECRET` | o valor de `BRIDGE_CONTROL_SECRET` do `.env` (segredo de controle). **A Lambda NAO deve receber o `BRIDGE_SECRET` de agente**: se ela o tivesse, a separacao de segredos perderia o sentido |
 | `ALLOWED_USER_ID` | seu userId da Alexa (ver abaixo) |
 | `ALLOWED_DEVICE_ID` | deviceId do seu aparelho (ver abaixo) |
 | `ALLOWED_SKILL_ID` | applicationId da sua skill (ver abaixo); com ele definido, outra skill e recusada sem chamar a ponte |
@@ -50,17 +50,22 @@ O `applicationId` (formato `amzn1.ask.skill.<uuid>`) aparece no mesmo log, em `s
 
 Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a ponte.
 
+> **Reimporte o modelo de interacao.** Os intents novos (cancelar agente, avisar o agente aberto, projeto no ditado) so existem depois de colar de novo `skill/interaction-model-pt-BR.json` em **Build > JSON Editor**, **Save** e **Build Model**, e de fazer **Deploy** do novo `index.js`. Sem isso a Alexa nao reconhece as frases novas.
+
 ## 4. Ligar os hooks do Claude Code
 
 1. Abra `~/.claude/settings.json` (Windows: `C:\Users\<voce>\.claude\settings.json`).
 2. Mescle o bloco `hooks` de `bridge/claude-settings.example.json`. Ajuste o caminho do `hook.py` para onde o repositorio esta (o exemplo usa `~/claude-alexa-bridge/bridge/hook.py`).
-3. Defina no ambiente do Claude Code (ou do sistema): `BRIDGE_SECRET` (mesmo valor do `.env`) e, se a ponte nao estiver em `http://127.0.0.1:8765`, `BRIDGE_URL`. O hook roda na mesma maquina da ponte, entao nao precisa do tunel.
+3. Defina no ambiente do Claude Code (ou do sistema): `BRIDGE_SECRET` (segredo de **agente**, valor de `BRIDGE_SECRET` no `.env`; o `BRIDGE_CONTROL_SECRET` nunca vai para o ambiente do agente) e, se a ponte nao estiver em `http://127.0.0.1:8765`, `BRIDGE_URL`. O hook roda na mesma maquina da ponte, entao nao precisa do tunel.
 4. Reinicie o Claude Code. Os hooks falham abertos: se a ponte estiver fora do ar, o agente segue normal.
 
 ## 5. Uso rapido por voz
 
 - "Alexa, pergunte a ponte claude o status" / "o que esta pendente" / "qual o resultado".
 - Aprovar: diga "aprovar" com o PIN; negar: "negar". O PIN vem do `.env` (`BRIDGE_PIN`).
+- Cancelar: "cancela o agente" / "para o agente" interrompe a execucao mais recente em andamento ("Cancelei o agente claude." ou "Nenhum agente rodando.").
+- Avisar o agente aberto: "avise o agente aberto <instrucao>" (mesma releitura e "confirma" do ditado; entra na fila do Claude Code aberto).
+- Projeto no ditado: "peca ao codex no projeto <nome> para <tarefa>". Projeto que nao existe em `PROJECTS_ROOT` responde "Nao achei o projeto <nome>." e nada roda.
 - Modos: "modo manual", "modo automatico" (aprova tudo, sem PIN), "modo decisoes"; aviso de fim de ciclo: "avisar no fim do ciclo".
 
 ## 6. Ponte como servico fixo (tarefa agendada)
@@ -94,11 +99,12 @@ powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1 -DryRun
 powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1
 ```
 
-Gera novo `BRIDGE_SECRET` no `.env` (com backup `.env.bak-<data>`, que guarda o segredo antigo: apague-o), reinicia a tarefa e lista o que atualizar: Lambda (`BRIDGE_SECRET` + Deploy), hooks/ambiente do Claude Code e do Codex, e o registro MCP (`scripts\setup-agents.ps1`).
+Gera novo segredo no `.env` (`-Which agent|control|both`, padrao `both`) (com backup `.env.bak-<data>`, que guarda o segredo antigo: apague-o), reinicia a tarefa e lista o que atualizar: Lambda (`BRIDGE_CONTROL_SECRET` + Deploy, se o de controle mudou), hooks/ambiente do Claude Code e do Codex e o registro MCP (`BRIDGE_SECRET`, se o de agente mudou) (`scripts\setup-agents.ps1`).
 
 ## Seguranca
 
-- Todas as chamadas a ponte levam o header `x-secret`; sem ele, 401 (exceto `/health`).
+- Todas as chamadas a ponte levam o header `x-secret`; sem ele, 401 (exceto `/health`). Cada rota aceita so o seu segredo: o de agente vale em `/event`, `/approval`, `/instruction/next` e `/mcp`; o de controle vale em todas as demais. O segredo de agente recebe 401 em `/mode`, entao um agente comprometido nao liga o modo auto sozinho.
+- O estado do fim de ciclo, o resumo da sessao e a trava de PIN ficam no SQLite e sobrevivem a reinicio da ponte.
 - Comandos perigosos (rm, sudo, git push, deploy, etc.) nunca sao aprovados por voz nos modos manual e decisoes.
 - O tunel rapido e publico enquanto estiver aberto: nao o deixe ligado sem necessidade e nao compartilhe a URL.
 

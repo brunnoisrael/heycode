@@ -72,7 +72,7 @@ def test_a3_result_mascara_o_resumo_da_run(client):
     store = client.server.store
     rid = store.create_run("claude", "p", "x", "/x")
     store.update_run(rid, status="concluida", summary=f"chave {SK}")
-    client.server._unreported.append(rid)
+    store.mark_unreported(rid)
     assert SK not in client.get("/result").json()["speech"]
 
 

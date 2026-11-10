@@ -97,8 +97,6 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="roomcode", lifespan=lifespan)
-_summaries: dict = {}  # sid -> ultimo resumo (o store regrava a sessao a cada evento)
-lock = {"fails": 0, "until": 0.0}
 
 
 def _check(x_secret: str, expected: str):
@@ -189,13 +187,13 @@ def project_of(cwd) -> str:
 
 
 # --- Supervisor e ditado (fase 4) ---
-_unreported: list = []  # ids de runs terminadas cujo fim de ciclo ainda nao foi lido por voz
+# fim de ciclo nao lido: coluna runs.reported (ADR 0015), sobrevive a reinicio
 
 
 def _on_run_finished(run: dict):
     push(f"{run['agent']} terminou", short(run.get("summary") or "Tarefa concluida"))
     if store.get_policy(run["agent"], run["project"])["report_on_end"]:
-        _unreported.append(run["id"])
+        store.mark_unreported(run["id"])
 
 
 def _resolve_project(project):
@@ -235,7 +233,7 @@ def event(e: dict):
     sid = e.get("session_id", "?")
     agent = e.get("agent") or DEFAULT_AGENT
     project = project_of(e.get("cwd"))
-    status, detail = "ocioso", ""
+    status, detail, summary = "ocioso", "", None
     ev = e.get("hook_event_name")
     if ev == "UserPromptSubmit":
         status, detail = "trabalhando", f"na tarefa: {short(e.get('prompt'), 100)}"
@@ -246,9 +244,9 @@ def event(e: dict):
         push("Claude precisa de voce", detail)
     elif ev == "Stop":
         status = "concluido"
-        _summaries[sid] = last_assistant_text(e.get("transcript_path", ""))
-        push("Claude terminou", _summaries[sid] or "Tarefa concluida")
-    store.upsert_session(sid, agent, project, status, detail, _summaries.get(sid, ""))
+        summary = last_assistant_text(e.get("transcript_path", ""))
+        push("Claude terminou", summary or "Tarefa concluida")
+    store.upsert_session(sid, agent, project, status, detail, summary)  # None preserva o resumo gravado
     return {"ok": True}
 
 
@@ -373,11 +371,10 @@ def pending():
         return {"actionable": True, "approval_id": a["id"],
                 "speech": say(f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
                               "Diga aprovar com o seu PIN, ou negar.")}
-    if _unreported:
-        run = store.get_run(_unreported[0])
-        if run:
-            return {"actionable": False, "approval_id": None,
-                    "speech": say(f"O agente {run['agent']} terminou no projeto {run['project']}. Quer ouvir a saída?")}
+    run = store.first_unreported()
+    if run:
+        return {"actionable": False, "approval_id": None,
+                "speech": say(f"O agente {run['agent']} terminou no projeto {run['project']}. Quer ouvir a saída?")}
     s = store.newest_session()
     if s and s["status"] == "aguardando":
         return {"actionable": False, "approval_id": None,
@@ -387,12 +384,12 @@ def pending():
 
 @app.get("/result", dependencies=[Depends(auth_control)])
 def result():
-    while _unreported:
-        run = store.get_run(_unreported.pop(0))
-        if run:
-            outcome = "falhou" if run["status"] == "falhou" else "terminou"
-            return {"speech": say(f"O agente {run['agent']} {outcome} no projeto {run['project']}. "
-                                  f"Resultado: {run.get('summary') or 'sem resumo'}")}
+    run = store.first_unreported()
+    if run:
+        store.mark_reported(run["id"])
+        outcome = "falhou" if run["status"] == "falhou" else "terminou"
+        return {"speech": say(f"O agente {run['agent']} {outcome} no projeto {run['project']}. "
+                              f"Resultado: {run.get('summary') or 'sem resumo'}")}
     s = store.newest_session()
     if s and s["summary"]:
         return {"speech": say(f"Resumo do projeto {s['project']}: {s['summary']}")}
@@ -407,6 +404,7 @@ class Decision(BaseModel):
 
 @app.post("/decide", dependencies=[Depends(auth_control)])
 def decide(d: Decision):
+    lock = store.get_pin_lock()
     if time.time() < lock["until"]:
         return {"speech": "Aprovação por voz bloqueada por alguns minutos. Use o teclado."}
     waiting = store.pending_approvals()
@@ -420,12 +418,13 @@ def decide(d: Decision):
         return {"speech": "Não há nada aguardando decisão."}
     if d.approve:
         if not PIN or not hmac.compare_digest(d.pin.encode(), PIN.encode()):
-            lock["fails"] += 1
-            if lock["fails"] >= 3:
-                lock.update(fails=0, until=time.time() + 300)
+            fails = lock["fails"] + 1
+            if fails >= 3:
+                store.set_pin_lock(0, time.time() + 300)
                 return {"speech": "PIN incorreto três vezes. Aprovação por voz bloqueada por cinco minutos."}
+            store.set_pin_lock(fails, lock["until"])
             return {"speech": "PIN incorreto."}
-        lock["fails"] = 0
+        store.set_pin_lock(0, 0.0)
     store.resolve_approval(waiting[0]["id"], "allow" if d.approve else "deny")
     return {"speech": "Aprovado. O agente vai continuar." if d.approve else "Negado. O agente foi informado."}
 

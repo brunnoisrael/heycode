@@ -87,3 +87,23 @@ def test_persistencia(tmp_path):
     s.set_policy(mode="auto", agent="claude")
     s.close() if hasattr(s, "close") else None
     assert Store(p).get_policy("claude", None)["mode"] == "auto"
+
+
+def test_reported_resumo_e_trava_no_store(tmp_path):
+    path = str(tmp_path / "x.db")
+    s = Store(path)
+    rid = s.create_run("claude", "p", "x", "/x")
+    s.update_run(rid, status="concluida")
+    assert s.first_unreported() is None
+    s.mark_unreported(rid)
+    s.upsert_session("s1", "claude", "p", "concluido", "", "resumo")
+    s.upsert_session("s1", "claude", "p", "trabalhando", "x")  # sem summary: preserva
+    s.set_pin_lock(2, 99.0)
+    s.close()
+    s = Store(path)
+    assert s.first_unreported()["id"] == rid
+    assert s.newest_session()["summary"] == "resumo"
+    assert s.get_pin_lock() == {"fails": 2, "until": 99.0}
+    s.mark_reported(rid)
+    assert s.first_unreported() is None
+    s.close()

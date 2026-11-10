@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS instructions (
 CREATE TABLE IF NOT EXISTS runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, project TEXT, prompt TEXT, cwd TEXT,
     status TEXT NOT NULL DEFAULT 'rodando', summary TEXT, exit_code INTEGER, pid INTEGER,
-    t_start REAL, t_end REAL);
+    t_start REAL, t_end REAL, reported INTEGER NOT NULL DEFAULT 1);
+CREATE TABLE IF NOT EXISTS pin_lock (
+    id INTEGER PRIMARY KEY CHECK (id = 1), fails INTEGER NOT NULL, until REAL NOT NULL);
 """
 
 RUN_STATUS = ("rodando", "concluida", "falhou", "cancelada", "interrompida")
@@ -39,6 +41,9 @@ class Store:
         self._db.row_factory = sqlite3.Row
         with self._lock:
             self._db.executescript(_SCHEMA)
+            cols = [r["name"] for r in self._db.execute("PRAGMA table_info(runs)")]
+            if "reported" not in cols:  # banco criado antes do ADR 0015
+                self._db.execute("ALTER TABLE runs ADD COLUMN reported INTEGER NOT NULL DEFAULT 1")
             self._db.commit()
 
     def close(self) -> None:
@@ -92,7 +97,8 @@ class Store:
                 "INSERT INTO sessions (session_id, agent, project, status, detail, summary, updated)"
                 " VALUES (?,?,?,?,?,?,?) ON CONFLICT(session_id) DO UPDATE SET"
                 " agent=excluded.agent, project=excluded.project, status=excluded.status,"
-                " detail=excluded.detail, summary=excluded.summary, updated=excluded.updated",
+                " detail=excluded.detail, summary=COALESCE(excluded.summary, sessions.summary),"
+                " updated=excluded.updated",
                 (session_id, agent, project, status, detail, summary, time.time()))
             self._db.commit()
 
@@ -202,10 +208,47 @@ class Store:
                 row = self._db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
         return dict(row) if row else None
 
+    # aviso de fim de ciclo: reported=0 significa "ainda nao falado por voz" (ADR 0015)
+    def mark_unreported(self, run_id: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE runs SET reported=0 WHERE id=?", (run_id,))
+            self._db.commit()
+
+    def mark_reported(self, run_id: int) -> None:
+        with self._lock:
+            self._db.execute("UPDATE runs SET reported=1 WHERE id=?", (run_id,))
+            self._db.commit()
+
+    def first_unreported(self) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM runs WHERE reported=0 AND status!='interrompida' ORDER BY id LIMIT 1"
+            ).fetchone()
+        return dict(row) if row else None
+
+    def latest_running(self) -> dict | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT * FROM runs WHERE status='rodando' ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    # trava de PIN
+    def get_pin_lock(self) -> dict:
+        with self._lock:
+            row = self._db.execute("SELECT fails, until FROM pin_lock WHERE id=1").fetchone()
+        return {"fails": row["fails"], "until": row["until"]} if row else {"fails": 0, "until": 0.0}
+
+    def set_pin_lock(self, fails: int, until: float) -> None:
+        with self._lock:
+            self._db.execute(
+                "INSERT INTO pin_lock (id, fails, until) VALUES (1,?,?) ON CONFLICT(id) DO UPDATE"
+                " SET fails=excluded.fails, until=excluded.until", (fails, until))
+            self._db.commit()
+
     def interrupt_running(self) -> int:
         with self._lock:
             cur = self._db.execute(
-                "UPDATE runs SET status='interrompida', t_end=? WHERE status='rodando'",
+                "UPDATE runs SET status='interrompida', reported=1, t_end=? WHERE status='rodando'",
                 (time.time(),))
             self._db.commit()
             return cur.rowcount
