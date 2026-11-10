@@ -10,11 +10,22 @@ except ImportError:  # pragma: no cover
 
 MAX_CHARS = 300
 AGENTS = ("claude", "codex", "aider")
+TARGETS = ("run", "aberto")  # "run": inicia uma execucao nova; "aberto": fila da sessao ja aberta (ADR 0018)
+WORKING = ("trabalhando", "aguardando")  # sessao no meio de um turno: o hook Stop ainda vai disparar
+
+
+def _where(project) -> str:
+    return f" no projeto {mask_secrets(str(project))}" if project else ""
+
 
 class Dictation:
     def __init__(self, start_run: Callable[[str, str, str | None], int], ttl: float = 60.0, clock=time.time,
-                 check_project: Callable[[str | None], str | None] | None = None) -> None:
+                 check_project: Callable[[str | None], str | None] | None = None,
+                 open_session: Callable[[], dict | None] | None = None,
+                 enqueue: Callable[[str, str, str | None], int] | None = None) -> None:
         self._start_run = start_run
+        self._open_session = open_session  # sessao aberta mais recente (agent, project, status) ou None
+        self._enqueue = enqueue  # poe a instrucao na fila da sessao aberta
         self._check_project = check_project  # fala de erro (projeto inexistente) ou None
         self._ttl = ttl
         self._clock = clock
@@ -42,7 +53,13 @@ class Dictation:
                 self._pending = None  # expirada nunca vence
             return self._pending is not None
 
-    def propose(self, agent: str, text: str, project: str | None = None) -> dict:
+    def _find_open(self) -> dict | None:
+        try:
+            return self._open_session() if self._open_session and self._enqueue else None
+        except Exception:
+            return None
+
+    def propose(self, agent: str, text: str, project: str | None = None, target: str = "run") -> dict:
         agent = (agent or "").strip().lower()
         text = (text or "").strip()
         if self._peer is not None:
@@ -50,16 +67,28 @@ class Dictation:
         with self._lock:
             self._pending = None
             self._expired = False
-            if agent not in AGENTS:
+            if target not in TARGETS:
+                return {"speech": "Não entendi para quem é a instrução.", "ok": False}
+            if target == "run" and agent not in AGENTS:
                 return {"speech": "Não conheço esse agente. Diga claude, codex ou aider.", "ok": False}
             if not text:
                 return {"speech": "Não entendi a instrução. Pode repetir?", "ok": False}
             if len(text) > MAX_CHARS:
                 return {"speech": f"A instrução passou de {MAX_CHARS} caracteres. Diga uma mais curta.", "ok": False}
+            if target == "aberto":  # o destino e a sessao aberta mais recente, nao o que veio no pedido
+                s = self._find_open()
+                if not s:
+                    return {"speech": "Não achei nenhum agente aberto com atividade recente. Nada foi enviado.",
+                            "ok": False}
+                self._pending = {"target": "aberto", "agent": s.get("agent") or "claude", "text": text,
+                                 "project": s.get("project") or None, "working": s.get("status") in WORKING,
+                                 "t": self._clock()}
+                return {"speech": f"Entendi, para o agente aberto{_where(self._pending['project'])}: "
+                                  f"{mask_secrets(text)}. Confirma?", "ok": True}
             bad = self._check_project(project) if self._check_project else None
             if bad:
                 return {"speech": bad, "ok": False}
-            self._pending = {"agent": agent, "text": text, "project": project, "t": self._clock()}
+            self._pending = {"target": "run", "agent": agent, "text": text, "project": project, "t": self._clock()}
         return {"speech": f"Entendi, para o {agent}: {mask_secrets(text)}. Confirma?", "ok": True}
 
     def confirm(self) -> dict:
@@ -72,6 +101,15 @@ class Dictation:
                 return {"speech": "Não há nada para confirmar."}
             if self._clock() - p["t"] > self._ttl:
                 return {"speech": "O ditado expirou. Nada foi enviado."}
+        if p["target"] == "aberto":
+            try:
+                instruction_id = self._enqueue(p["agent"], p["text"], p["project"])
+            except Exception as e:  # nunca derruba a ponte; a mensagem sai mascarada
+                return {"speech": f"Não consegui pôr a instrução na fila: {mask_secrets(str(e))[:120]}"}
+            when = ("Ele recebe ao terminar o turno atual." if p["working"]
+                    else "Ele está parado e só recebe ao fim do próximo turno.")
+            return {"speech": f"Instrução na fila do agente aberto{_where(p['project'])}. {when}",
+                    "instruction_id": instruction_id}
         try:
             run_id = self._start_run(p["agent"], p["text"], p["project"])
         except Exception as e:  # nunca derruba a ponte; a mensagem sai mascarada

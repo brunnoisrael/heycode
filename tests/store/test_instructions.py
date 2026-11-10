@@ -47,3 +47,19 @@ def test_mais_antiga_primeiro_entre_projeto_e_geral():
     s.add_instruction("do a", project="a")
     assert s.pop_instruction("claude", "a")["text"] == "geral"
     assert s.pop_instruction("claude", "a")["text"] == "do a"
+
+
+def test_max_age_expira_instrucao_velha_sem_entregar():
+    s = Store()
+    s.add_instruction("velha", project="a")
+    s._db.execute("UPDATE instructions SET t=t-100")
+    s.add_instruction("nova", project="a")
+    assert s.pop_instruction("claude", "a", max_age=50)["text"] == "nova"
+    assert s.pop_instruction("claude", "a") is None  # a velha ficou expirada, nao volta sem max_age
+
+
+def test_sem_max_age_nada_expira():
+    s = Store()
+    s.add_instruction("velha")
+    s._db.execute("UPDATE instructions SET t=t-10000")
+    assert s.pop_instruction("claude", None)["text"] == "velha"

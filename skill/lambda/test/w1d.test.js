@@ -147,12 +147,39 @@ test('CancelRunIntent faz POST /runs/latest/cancel e fala a speech', async () =>
   assert.match(speech(r), /Nenhum agente rodando\./);
 });
 
-test('SendInstructionIntent vira ditado para claude com confirmacao', async () => {
-  setup({ speech: 'Entendi: x. Confirma?' });
+test('SendInstructionIntent vira ditado para o agente aberto, com confirmacao e sem agente fixo', async () => {
+  setup({ speech: 'Entendi, para o agente aberto no projeto painel: use tabs. Confirma?', ok: true });
   const r = await handler(envelope(intent('SendInstructionIntent', { instrucao: 'use tabs' })), {});
+  assert.strictEqual(calls.length, 1);
   assert.strictEqual(calls[0].url, 'http://bridge.test/dictation');
-  assert.deepStrictEqual(JSON.parse(calls[0].opts.body), { agent: 'claude', text: 'use tabs' });
+  assert.strictEqual(calls[0].opts.method, 'POST');
+  assert.deepStrictEqual(JSON.parse(calls[0].opts.body), { target: 'aberto', text: 'use tabs' });
+  assert.strictEqual(calls[0].opts.headers['x-secret'], 'controle'); // segredo de controle, nunca o de agente
+  assert.match(speech(r), /agente aberto no projeto painel/);
   assert.match(r.response.reprompt.outputSpeech.ssml, /Confirma\?/);
+  assert.notStrictEqual(r.response.shouldEndSession, true);
+});
+
+test('SendInstructionIntent sem agente aberto fala a recusa e nao pede confirmacao', async () => {
+  setup({ speech: 'Não achei nenhum agente aberto com atividade recente. Nada foi enviado.', ok: false });
+  const r = await handler(envelope(intent('SendInstructionIntent', { instrucao: 'use tabs' })), {});
+  assert.match(speech(r), /Nada foi enviado/);
+  assert.strictEqual(r.response.reprompt, undefined);
+});
+
+test('SendInstructionIntent e depois ConfirmIntent: a fila e da ponte, a Lambda nao chama /instruction', async () => {
+  setup({ speech: 'Entendi. Confirma?', ok: true });
+  await handler(envelope(intent('SendInstructionIntent', { instrucao: 'use tabs' })), {});
+  setup({ speech: 'Instrução na fila do agente aberto no projeto painel. Ele recebe ao terminar o turno atual.', instruction_id: 3 });
+  const r = await handler(envelope(intent('ConfirmIntent')), {});
+  assert.deepStrictEqual(calls.map(c => c.url), ['http://bridge.test/confirm']);
+  assert.match(speech(r), /Instrução na fila do agente aberto/);
+});
+
+test('AskAgentIntent continua sem target: peca ao agente segue iniciando run', async () => {
+  setup({ speech: 'Entendi, para o claude: x. Confirma?' });
+  await handler(envelope(intent('AskAgentIntent', { agente: 'claude', instrucao: 'x' })), {});
+  assert.deepStrictEqual(JSON.parse(calls[0].opts.body), { agent: 'claude', text: 'x' });
 });
 
 test('SendInstructionIntent sem instrucao nao chama a ponte', async () => {

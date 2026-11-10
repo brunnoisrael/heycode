@@ -153,3 +153,30 @@ def test_b2_sem_pin_o_modo_auto_continua_respondendo_sim(client, monkeypatch):
     monkeypatch.setattr(client.server, "PIN", "")
     client.post("/mode", json={"mode": "auto"})
     assert run(client.server._tools.pedir_decisao("posso?")) == {"answer": "sim", "auto": True}
+
+
+def test_buscar_instrucao_respeita_a_validade(client):
+    st = client.server.store
+    st.add_instruction("velha", "codex", "proj")
+    st._db.execute("UPDATE instructions SET t=t-100")
+    tools = client.server.mcp_mod.make_tools(st, lambda: 1, instruction_ttl=lambda: 50)
+    assert run(tools.buscar_instrucao("codex", "proj")) == {"instruction": None}
+
+
+def test_mcp_registra_e_busca_com_as_mesmas_chaves_do_avise_o_agente_aberto(client):
+    """ADR 0018: a instrucao vai para o agente/projeto da sessao; a ferramenta casa por igualdade."""
+    tools = client.server._tools
+    run(tools.registrar_status("trabalhando", "", "codex", "api"))
+    assert client.post("/dictation", json={"target": "aberto", "text": "use tabs"}).json()["ok"] is True
+    client.post("/confirm")
+    assert run(tools.buscar_instrucao()) == {"instruction": None}  # padroes "agent"/"projeto" nao casam
+    assert run(tools.buscar_instrucao("codex", "api")) == {"instruction": "use tabs"}
+    assert run(tools.buscar_instrucao("codex", "api")) == {"instruction": None}
+
+
+def test_mcp_com_os_padroes_dos_dois_lados_tambem_casa(client):
+    tools = client.server._tools
+    run(tools.registrar_status("trabalhando"))
+    client.post("/dictation", json={"target": "aberto", "text": "x"})
+    client.post("/confirm")
+    assert run(tools.buscar_instrucao()) == {"instruction": "x"}

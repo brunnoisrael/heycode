@@ -230,7 +230,11 @@ const SendInstruction = {
       return h.responseBuilder.speak('Qual é a instrução para o agente aberto?')
         .reprompt('O que devo avisar ao agente?').getResponse();
     }
-    return dictate(h, 'claude', text);
+    // Fila da sessão já aberta (ADR 0018): a ponte escolhe a sessão mais recente; nada de run nova.
+    const d = await bridge('/dictation', 'POST', { target: 'aberto', text });
+    const rb = h.responseBuilder.speak(d.speech);
+    if (d.ok !== false) rb.reprompt('Confirma?');
+    return rb.getResponse();
   },
 };
 

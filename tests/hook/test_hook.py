@@ -75,9 +75,12 @@ def test_stop_com_instrucao_bloqueia():
     finally:
         f.close()
     assert r.returncode == 0
-    assert r.stdout.strip() == '{"decision":"block","reason":"rode os testes"}'
+    out = json.loads(r.stdout)
+    assert out == {"decision": "block",
+                   "reason": "Instrução do dono, ditada pela Alexa e confirmada por voz: rode os testes"}
+    assert r.stdout.isascii()  # sem depender da codificacao do console no Windows
     assert [c[0] for c in f.calls] == ["/event", "/instruction/next"]
-    assert f.calls[1][1]["agent"] == "claude"
+    assert f.calls[1][1] == {"agent": "claude", "project": "proj"}  # mesmas chaves do /event (ADR 0018)
 
 
 def test_stop_sem_instrucao_silencioso():
@@ -127,3 +130,12 @@ def test_stdin_utf8_chega_integro_ao_servidor():
     assert r.returncode == 0
     assert f.calls[0][1]["message"] == texto
     assert f.calls[0][1]["extra"] == texto2
+
+
+def test_stop_no_windows_usa_o_nome_da_pasta_como_projeto():
+    f = Fake(instruction=None)
+    try:
+        run([], {"hook_event_name": "Stop", "cwd": "C:\\Users\\dono\\Projetos\\painel\\"}, f.url)
+    finally:
+        f.close()
+    assert f.calls[1] == ("/instruction/next", {"agent": "claude", "project": "painel"})

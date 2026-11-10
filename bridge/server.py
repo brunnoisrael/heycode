@@ -58,6 +58,8 @@ PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz 
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")   # opcional: push no celular via ntfy.sh
 HA_WEBHOOK_URL = os.environ.get("HA_WEBHOOK_URL", "")  # opcional: webhook (Home Assistant) para voz espontanea
 APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
+OPEN_SESSION_WINDOW = int(os.environ.get("OPEN_SESSION_WINDOW", "1800"))  # s sem evento: a sessao nao conta como aberta
+INSTRUCTION_TTL = int(os.environ.get("INSTRUCTION_TTL", "1800"))  # s: instrucao na fila nao entregue expira
 
 DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
 DEFAULT_AGENT = "claude"
@@ -70,7 +72,7 @@ store.interrupt_running()  # reinicio: runs do supervisor em andamento viram "in
 
 
 mcp_mod = _load_mcp_module()
-_tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT, lambda: bool(PIN))
+_tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT, lambda: bool(PIN), lambda: INSTRUCTION_TTL)
 _mcp_current = {"app": None}  # sub-app MCP da execucao atual do lifespan (o gerenciador de sessao roda uma vez so)
 
 
@@ -247,7 +249,20 @@ def _start_run(agent: str, text: str, project) -> int:
     return supervisor.start(agent, text, cwd, mode)
 
 
-dictation = Dictation(_start_run, check_project=_check_project)
+def _open_session():
+    """Sessao aberta mais recente (eventos dos hooks ou `registrar_status`) com atividade na janela; ou None."""
+    s = store.newest_session()
+    if not s or time.time() - s["updated"] > OPEN_SESSION_WINDOW:
+        return None
+    return s
+
+
+def _enqueue_instruction(agent: str, text: str, project) -> int:
+    return store.add_instruction(text, agent, project)
+
+
+dictation = Dictation(_start_run, check_project=_check_project,
+                      open_session=_open_session, enqueue=_enqueue_instruction)
 _TEMPLATE_REPO = os.path.dirname(_BRIDGE_DIR)  # este repositorio: fonte de scripts/gates e .githooks
 project_creator = ProjectCreator(PROJECTS_ROOT, _TEMPLATE_REPO, _start_run)
 
@@ -325,7 +340,7 @@ class NextInstructionReq(BaseModel):
 
 @app.post("/instruction/next", dependencies=[Depends(auth_agent)])
 def next_instruction(r: NextInstructionReq):
-    item = store.pop_instruction(r.agent, r.project)
+    item = store.pop_instruction(r.agent, r.project, INSTRUCTION_TTL)
     return {"instruction": item["text"] if item else None}
 
 

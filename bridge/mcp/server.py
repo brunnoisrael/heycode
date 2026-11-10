@@ -15,12 +15,15 @@ from starlette.responses import PlainTextResponse
 from policy.engine import decidir
 
 
-def make_tools(store, approval_wait, has_pin=lambda: True):
+def make_tools(store, approval_wait, has_pin=lambda: True, instruction_ttl=lambda: None):
     """Funcoes das ferramentas, ligadas a um Store. `approval_wait()` devolve o prazo em segundos;
-    `has_pin()` diz se ha PIN (sem PIN ninguem aprova por voz)."""
+    `has_pin()` diz se ha PIN (sem PIN ninguem aprova por voz); `instruction_ttl()` devolve a validade
+    de uma instrucao na fila, em segundos (None = sem validade)."""
 
     async def registrar_status(status: str, detail: str = "", agent: str = "agent", project: str = "projeto") -> dict:
-        """Registra o estado atual do agente (ex.: trabalhando, aguardando) para a Alexa informar."""
+        """Registra o estado atual do agente (ex.: trabalhando, aguardando) para a Alexa informar.
+        Passe sempre `agent` (claude, codex ou aider) e `project` (nome da pasta de trabalho, sem o caminho):
+        "avise o agente aberto" enfileira a instrucao para o agente e o projeto registrados aqui."""
         store.upsert_session(f"mcp:{agent}:{project}", agent, project, status, detail, None)
         return {"ok": True}
 
@@ -48,8 +51,11 @@ def make_tools(store, approval_wait, has_pin=lambda: True):
         return {"ok": True}
 
     async def buscar_instrucao(agent: str = "agent", project: str = "projeto") -> dict:
-        """Busca a proxima instrucao enviada pelo dono (cada uma e entregue uma unica vez)."""
-        item = store.pop_instruction(agent, project)
+        """Busca a proxima instrucao enviada pelo dono por voz (cada uma e entregue uma unica vez).
+        A fila casa agente e projeto por igualdade: passe os mesmos `agent` (claude, codex ou aider) e
+        `project` (nome da pasta de trabalho, sem o caminho) usados em `registrar_status`. Sem eles, so
+        chega o que foi enfileirado para os padroes "agent" e "projeto"."""
+        item = store.pop_instruction(agent, project, instruction_ttl())
         return {"instruction": item["text"] if item else None}
 
     return SimpleNamespace(registrar_status=registrar_status, pedir_decisao=pedir_decisao,

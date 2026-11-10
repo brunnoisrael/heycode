@@ -154,8 +154,13 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
-    def pop_instruction(self, agent: str, project: str | None) -> dict | None:
+    def pop_instruction(self, agent: str, project: str | None, max_age: float | None = None) -> dict | None:
+        """Proxima instrucao do agente/projeto. Com `max_age` (segundos), as mais velhas expiram sem entrega."""
         with self._lock:
+            if max_age is not None:  # delivered=2: expirada, nunca entregue (ADR 0018)
+                self._db.execute("UPDATE instructions SET delivered=2 WHERE delivered=0 AND t<?",
+                                 (time.time() - max_age,))
+                self._db.commit()
             row = self._db.execute(
                 "SELECT id, text, agent, project FROM instructions WHERE delivered=0 AND agent=?"
                 " AND (project IS NULL OR project=?) ORDER BY id LIMIT 1",

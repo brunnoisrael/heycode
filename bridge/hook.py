@@ -47,7 +47,8 @@ try:
                 body["project"] = project
             text = post("/instruction/next", body, 3).get("instruction")
             if text:
-                print(json.dumps({"decision": "block", "reason": text}, separators=(",", ":")))
+                reason = "Instrução do dono, ditada pela Alexa e confirmada por voz: " + text
+                print(json.dumps({"decision": "block", "reason": reason}, separators=(",", ":")))
 except Exception:
     pass  # a ponte nunca pode quebrar o Claude Code
 sys.exit(0)
