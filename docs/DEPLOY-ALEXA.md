@@ -101,3 +101,29 @@ Gera novo `BRIDGE_SECRET` no `.env` (com backup `.env.bak-<data>`, que guarda o 
 - Todas as chamadas a ponte levam o header `x-secret`; sem ele, 401 (exceto `/health`).
 - Comandos perigosos (rm, sudo, git push, deploy, etc.) nunca sao aprovados por voz nos modos manual e decisoes.
 - O tunel rapido e publico enquanto estiver aberto: nao o deixe ligado sem necessidade e nao compartilhe a URL.
+
+## 9. Aviso proativo (a Alexa falando sozinha)
+
+Skills custom da Alexa não iniciam conversa. Para o aviso espontâneo ("o agente terminou"), a ponte avisa por dois canais opcionais, sempre com segredos mascarados:
+
+- **ntfy** (push no celular): defina `NTFY_TOPIC` com um nome difícil de adivinhar.
+- **Webhook** (voz na sala via Home Assistant): defina `HA_WEBHOOK_URL`. A ponte faz `POST` com `{"title": "...", "message": "..."}` a cada evento que precisa de você (agente aguardando, aprovação por voz, fim de execução).
+
+Exemplo de automação no Home Assistant, com o Alexa Media Player instalado:
+
+```yaml
+automation:
+  - alias: RoomCode avisa na Alexa
+    trigger:
+      - platform: webhook
+        webhook_id: roomcode
+        local_only: true
+    action:
+      - service: notify.alexa_media_sala
+        data:
+          message: "{{ trigger.json.message }}"
+          data:
+            type: announce
+```
+
+Depois aponte `HA_WEBHOOK_URL` para `http://<seu-home-assistant>:8123/api/webhook/roomcode`. Falha no webhook nunca derruba a ponte.

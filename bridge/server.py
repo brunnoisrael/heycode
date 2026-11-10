@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 from policy.engine import decidir
 from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
 from store.db import Store
+from policy.redact import mask_secrets
 from supervisor.manager import Supervisor
 from supervisor.routes import make_router as _runs_router
 from dictation.service import Dictation
@@ -41,6 +42,7 @@ from projects.routes import make_router as _projects_router
 SECRET = os.environ["BRIDGE_SECRET"]            # obrigatório
 PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz desligada
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")   # opcional: push no celular via ntfy.sh
+HA_WEBHOOK_URL = os.environ.get("HA_WEBHOOK_URL", "")  # opcional: webhook (Home Assistant) para voz espontanea
 APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
 
 DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
@@ -97,14 +99,26 @@ def short(text, n=200):
 
 
 def push(title: str, body: str):
-    if not NTFY_TOPIC:
+    """Aviso proativo: ntfy (push no celular) e/ou webhook (ex.: Home Assistant). Nunca levanta; segredos mascarados."""
+    ntfy, hook = NTFY_TOPIC, HA_WEBHOOK_URL
+    if not (ntfy or hook):
         return
+    title, body = mask_secrets(title), mask_secrets(body)
+
     def _go():
-        try:
-            req = urllib.request.Request(f"https://ntfy.sh/{NTFY_TOPIC}", body.encode(), {"Title": title})
-            urllib.request.urlopen(req, timeout=5)
-        except Exception:
-            pass
+        if ntfy:
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    f"https://ntfy.sh/{ntfy}", body.encode(), {"Title": title.encode("ascii", "ignore").decode()}), timeout=5)
+            except Exception:
+                pass
+        if hook:
+            try:
+                urllib.request.urlopen(urllib.request.Request(
+                    hook, json.dumps({"title": title, "message": body}).encode(),
+                    {"Content-Type": "application/json"}), timeout=5)
+            except Exception:
+                pass
     threading.Thread(target=_go, daemon=True).start()
 
 
