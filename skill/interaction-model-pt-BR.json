@@ -3,51 +3,287 @@
     "languageModel": {
       "invocationName": "meu agente",
       "intents": [
-        { "name": "AMAZON.CancelIntent", "samples": [] },
-        { "name": "AMAZON.HelpIntent", "samples": [] },
-        { "name": "AMAZON.StopIntent", "samples": [] },
-        { "name": "AMAZON.FallbackIntent", "samples": [] },
-        { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
-        { "name": "StatusIntent", "samples": ["status", "qual o status", "o que ele está fazendo", "o que está rolando", "como está indo", "em que pé está"] },
-        { "name": "PendingIntent", "samples": ["preciso fazer algo", "ele precisa de mim", "tem alguma pendência", "o que ele quer", "o que está pendente"] },
-        { "name": "ResultIntent", "samples": ["o que ele fez", "qual foi o resultado", "resumo", "me dá o resumo", "já terminou"] },
-        { "name": "ApproveIntent", "slots": [{ "name": "pin", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
-          "samples": ["aprovar", "aprovar com o pin {pin}", "aprovar pin {pin}", "pode aprovar", "autorizar", "autorizar com o pin {pin}"] },
-        { "name": "DenyIntent", "samples": ["negar", "recusar", "não aprovar", "bloquear"] },
-        { "name": "SetModeIntent", "slots": [{ "name": "modo", "type": "MODO" }],
-          "samples": ["modo {modo}", "coloca em modo {modo}", "deixa em {modo}", "muda para {modo}"] },
-        { "name": "ReportOnEndIntent", "slots": [{ "name": "ligado", "type": "LIGADO" }],
-          "samples": ["avisar no fim do ciclo", "{ligado} aviso de fim de ciclo"] },
-        { "name": "AskAgentIntent", "slots": [{ "name": "agente", "type": "AGENTE" }, { "name": "instrucao", "type": "AMAZON.SearchQuery" }],
-          "samples": ["peça ao {agente} {instrucao}", "manda o {agente} {instrucao}", "diz pro {agente} {instrucao}"] },
-        { "name": "CreateProjectIntent", "slots": [
-            { "name": "nome", "type": "NOME_PROJETO" },
-            { "name": "agente", "type": "AGENTE" },
-            { "name": "descricao", "type": "AMAZON.SearchQuery" }],
-          "samples": ["crie o projeto {nome} com o {agente} para {descricao}", "começa um projeto {nome} com o {agente} {descricao}"] },
-        { "name": "ConfirmIntent", "samples": ["confirma", "pode mandar", "manda ver"] },
-        { "name": "CancelDictationIntent", "samples": ["esquece", "cancela isso"] }
+        {
+          "name": "AMAZON.CancelIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.HelpIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.StopIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.FallbackIntent",
+          "samples": []
+        },
+        {
+          "name": "AMAZON.NavigateHomeIntent",
+          "samples": []
+        },
+        {
+          "name": "StatusIntent",
+          "samples": [
+            "status",
+            "qual o status",
+            "o que ele está fazendo",
+            "o que está rolando",
+            "como está indo",
+            "em que pé está"
+          ]
+        },
+        {
+          "name": "PendingIntent",
+          "samples": [
+            "preciso fazer algo",
+            "ele precisa de mim",
+            "tem alguma pendência",
+            "o que ele quer",
+            "o que está pendente"
+          ]
+        },
+        {
+          "name": "ResultIntent",
+          "samples": [
+            "o que ele fez",
+            "qual foi o resultado",
+            "resumo",
+            "me dá o resumo",
+            "já terminou"
+          ]
+        },
+        {
+          "name": "ApproveIntent",
+          "slots": [
+            {
+              "name": "pin",
+              "type": "AMAZON.FOUR_DIGIT_NUMBER"
+            }
+          ],
+          "samples": [
+            "aprovar",
+            "aprovar com o pin {pin}",
+            "aprovar pin {pin}",
+            "pode aprovar",
+            "autorizar",
+            "autorizar com o pin {pin}"
+          ]
+        },
+        {
+          "name": "DenyIntent",
+          "samples": [
+            "negar",
+            "recusar",
+            "não aprovar",
+            "bloquear"
+          ]
+        },
+        {
+          "name": "SetModeIntent",
+          "slots": [
+            {
+              "name": "modo",
+              "type": "MODO"
+            }
+          ],
+          "samples": [
+            "modo {modo}",
+            "coloca em modo {modo}",
+            "deixa em {modo}",
+            "muda para {modo}"
+          ]
+        },
+        {
+          "name": "ReportOnEndIntent",
+          "slots": [
+            {
+              "name": "ligado",
+              "type": "LIGADO"
+            }
+          ],
+          "samples": [
+            "avisar no fim do ciclo",
+            "{ligado} aviso de fim de ciclo"
+          ]
+        },
+        {
+          "name": "AskAgentIntent",
+          "slots": [
+            {
+              "name": "agente",
+              "type": "AGENTE"
+            },
+            {
+              "name": "instrucao",
+              "type": "AMAZON.SearchQuery"
+            },
+            {
+              "name": "projeto",
+              "type": "NOME_PROJETO"
+            }
+          ],
+          "samples": [
+            "peça ao {agente} {instrucao}",
+            "manda o {agente} {instrucao}",
+            "diz pro {agente} {instrucao}",
+            "peça ao {agente} no projeto {projeto} {instrucao}",
+            "manda o {agente} no projeto {projeto} {instrucao}"
+          ]
+        },
+        {
+          "name": "CreateProjectIntent",
+          "slots": [
+            {
+              "name": "nome",
+              "type": "NOME_PROJETO"
+            },
+            {
+              "name": "agente",
+              "type": "AGENTE"
+            },
+            {
+              "name": "descricao",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "crie o projeto {nome} com o {agente} para {descricao}",
+            "começa um projeto {nome} com o {agente} {descricao}"
+          ]
+        },
+        {
+          "name": "CancelRunIntent",
+          "samples": [
+            "cancela o agente",
+            "para o agente",
+            "interrompe o agente"
+          ]
+        },
+        {
+          "name": "SendInstructionIntent",
+          "slots": [
+            {
+              "name": "instrucao",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "avise o agente aberto {instrucao}",
+            "avisa o agente aberto {instrucao}"
+          ]
+        },
+        {
+          "name": "ConfirmIntent",
+          "samples": [
+            "confirma",
+            "pode mandar",
+            "manda ver"
+          ]
+        },
+        {
+          "name": "CancelDictationIntent",
+          "samples": [
+            "esquece",
+            "cancela isso"
+          ]
+        }
       ],
       "types": [
-        { "name": "MODO", "values": [
-          { "id": "manual", "name": { "value": "manual" } },
-          { "id": "auto", "name": { "value": "auto", "synonyms": ["automático", "tudo liberado"] } },
-          { "id": "decisoes", "name": { "value": "decisões", "synonyms": ["decisoes"] } }
-        ] },
-        { "name": "NOME_PROJETO", "values": [
-          { "id": "meu-app", "name": { "value": "meu app" } },
-          { "id": "painel", "name": { "value": "painel" } },
-          { "id": "bot-de-estudos", "name": { "value": "bot de estudos" } }
-        ] },
-        { "name": "AGENTE", "values": [
-          { "id": "claude", "name": { "value": "claude" } },
-          { "id": "codex", "name": { "value": "codex" } },
-          { "id": "aider", "name": { "value": "aider" } }
-        ] },
-        { "name": "LIGADO", "values": [
-          { "id": "ligar", "name": { "value": "ligar" } },
-          { "id": "desligar", "name": { "value": "desligar" } }
-        ] }
+        {
+          "name": "MODO",
+          "values": [
+            {
+              "id": "manual",
+              "name": {
+                "value": "manual"
+              }
+            },
+            {
+              "id": "auto",
+              "name": {
+                "value": "auto",
+                "synonyms": [
+                  "automático",
+                  "tudo liberado"
+                ]
+              }
+            },
+            {
+              "id": "decisoes",
+              "name": {
+                "value": "decisões",
+                "synonyms": [
+                  "decisoes"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "NOME_PROJETO",
+          "values": [
+            {
+              "id": "meu-app",
+              "name": {
+                "value": "meu app"
+              }
+            },
+            {
+              "id": "painel",
+              "name": {
+                "value": "painel"
+              }
+            },
+            {
+              "id": "bot-de-estudos",
+              "name": {
+                "value": "bot de estudos"
+              }
+            }
+          ]
+        },
+        {
+          "name": "AGENTE",
+          "values": [
+            {
+              "id": "claude",
+              "name": {
+                "value": "claude"
+              }
+            },
+            {
+              "id": "codex",
+              "name": {
+                "value": "codex"
+              }
+            },
+            {
+              "id": "aider",
+              "name": {
+                "value": "aider"
+              }
+            }
+          ]
+        },
+        {
+          "name": "LIGADO",
+          "values": [
+            {
+              "id": "ligar",
+              "name": {
+                "value": "ligar"
+              }
+            },
+            {
+              "id": "desligar",
+              "name": {
+                "value": "desligar"
+              }
+            }
+          ]
+        }
       ]
     }
   }

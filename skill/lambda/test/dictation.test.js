@@ -23,7 +23,8 @@ const speech = r => r.response.outputSpeech.ssml;
 let calls;
 function setup(reply = { speech: 'Entendi: x. Confirma?' }) {
   process.env.BRIDGE_URL = 'http://bridge.test';
-  process.env.BRIDGE_SECRET = 's';
+  process.env.BRIDGE_CONTROL_SECRET = 'c';
+  process.env.BRIDGE_SECRET = 'segredo-de-agente';
   process.env.ALLOWED_USER_ID = OWNER;
   process.env.ALLOWED_DEVICE_ID = DEVICE;
   calls = [];
@@ -86,5 +87,5 @@ test('modelo de interacao declara os intents e o tipo AGENTE', () => {
   const t = m.types.find(x => x.name === 'AGENTE');
   assert.deepStrictEqual(t.values.map(v => v.id), ['claude', 'codex', 'aider']);
   const ask = m.intents.find(i => i.name === 'AskAgentIntent');
-  assert.deepStrictEqual(ask.slots.map(s => [s.name, s.type]), [['agente', 'AGENTE'], ['instrucao', 'AMAZON.SearchQuery']]);
+  assert.deepStrictEqual(ask.slots.map(s => [s.name, s.type]), [['agente', 'AGENTE'], ['instrucao', 'AMAZON.SearchQuery'], ['projeto', 'NOME_PROJETO']]);
 });

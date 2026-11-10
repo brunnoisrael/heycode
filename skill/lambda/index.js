@@ -7,7 +7,7 @@ async function bridge(path, method = 'GET', body) {
   try {
     const r = await fetch(process.env.BRIDGE_URL + path, {
       method,
-      headers: { 'x-secret': process.env.BRIDGE_SECRET, 'content-type': 'application/json' },
+      headers: { 'x-secret': process.env.BRIDGE_CONTROL_SECRET, 'content-type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
     });
@@ -29,10 +29,22 @@ const Launch = {
     .reprompt('Quer saber o status do agente?').getResponse(),
 };
 
+const getApprovalId = h => {
+  const a = h.attributesManager.getSessionAttributes() || {};
+  return a.approval_id == null ? null : a.approval_id;
+};
+const NEED_PENDING = 'Pergunte primeiro o que está pendente.';
+
 const simple = (intentName, path) => ({
   canHandle: h => isIntent(h, intentName),
   async handle(h) {
     const d = await bridge(path);
+    if (intentName === 'PendingIntent') {
+      // amarra a decisão ao pedido que foi lido em voz alta
+      const attrs = h.attributesManager.getSessionAttributes() || {};
+      if (d.approval_id == null) delete attrs.approval_id; else attrs.approval_id = d.approval_id;
+      h.attributesManager.setSessionAttributes(attrs);
+    }
     const rb = h.responseBuilder.speak(d.speech);
     if (d.actionable) rb.reprompt('Diga aprovar com o seu PIN, ou negar.'); // mantém a sessão aberta
     return rb.getResponse();
@@ -42,12 +54,16 @@ const simple = (intentName, path) => ({
 const Approve = {
   canHandle: h => isIntent(h, 'ApproveIntent'),
   async handle(h) {
+    const approvalId = getApprovalId(h);
+    if (approvalId == null) {
+      return h.responseBuilder.speak(NEED_PENDING).reprompt('O que você quer saber?').getResponse();
+    }
     const pin = Alexa.getSlotValue(h.requestEnvelope, 'pin');
     if (!pin) {
       return h.responseBuilder.speak('Qual é o seu PIN?').reprompt('Diga o seu PIN de quatro dígitos.')
         .addElicitSlotDirective('pin').getResponse();
     }
-    const d = await bridge('/decide', 'POST', { approve: true, pin });
+    const d = await bridge('/decide', 'POST', { approve: true, pin, approval_id: approvalId });
     return h.responseBuilder.speak(d.speech).getResponse();
   },
 };
@@ -55,7 +71,11 @@ const Approve = {
 const Deny = {
   canHandle: h => isIntent(h, 'DenyIntent'),
   async handle(h) {
-    const d = await bridge('/decide', 'POST', { approve: false });
+    const approvalId = getApprovalId(h);
+    if (approvalId == null) {
+      return h.responseBuilder.speak(NEED_PENDING).reprompt('O que você quer saber?').getResponse();
+    }
+    const d = await bridge('/decide', 'POST', { approve: false, approval_id: approvalId });
     return h.responseBuilder.speak(d.speech).getResponse();
   },
 };
@@ -83,7 +103,8 @@ const SetMode = {
         .reprompt('Qual modo: manual, automático ou decisões?').getResponse();
     }
     const d = await bridge('/mode', 'POST', { mode });
-    return h.responseBuilder.speak(d.speech).getResponse();
+    const name = { manual: 'manual', auto: 'automático', decisoes: 'decisões' }[d.mode || mode];
+    return h.responseBuilder.speak(d.speech || `Modo ${name} ativado.`).getResponse();
   },
 };
 
@@ -92,8 +113,10 @@ const ReportOnEnd = {
   canHandle: h => isIntent(h, 'ReportOnEndIntent'),
   async handle(h) {
     const v = norm(Alexa.getSlotValue(h.requestEnvelope, 'ligado'));
-    const d = await bridge('/mode', 'POST', { report_on_end: !OFF_WORDS.includes(v) });
-    return h.responseBuilder.speak(d.speech).getResponse();
+    const on = !OFF_WORDS.includes(v);
+    const d = await bridge('/mode', 'POST', { report_on_end: on });
+    const ligado = d.report_on_end === undefined ? on : d.report_on_end;
+    return h.responseBuilder.speak(d.speech || `Aviso de fim de ciclo ${ligado ? 'ligado' : 'desligado'}.`).getResponse();
   },
 };
 
@@ -109,6 +132,24 @@ function resolveAgent(envelope) {
   return AGENTS.includes(v) ? v : null;
 }
 
+function resolveProject(envelope) {
+  const slot = Alexa.getSlot(envelope, 'projeto');
+  if (!slot || !slot.value) return null;
+  const auth = ((slot.resolutions || {}).resolutionsPerAuthority || [])
+    .find(a => a.status && a.status.code === 'ER_SUCCESS_MATCH');
+  const id = auth && auth.values && auth.values[0] && auth.values[0].value && auth.values[0].value.id;
+  return id || String(slot.value).trim() || null;
+}
+
+async function dictate(h, agent, text, project) {
+  const body = { agent, text };
+  if (project) body.project = project;
+  const d = await bridge('/dictation', 'POST', body);
+  const rb = h.responseBuilder.speak(d.speech);
+  if (d.ok !== false) rb.reprompt('Confirma?');
+  return rb.getResponse();
+}
+
 const AskAgent = {
   canHandle: h => isIntent(h, 'AskAgentIntent'),
   async handle(h) {
@@ -118,8 +159,19 @@ const AskAgent = {
       return h.responseBuilder.speak('Diga o agente e a instrução. Por exemplo: peça ao claude para rodar os testes.')
         .reprompt('Para qual agente, e qual instrução?').getResponse();
     }
-    const d = await bridge('/dictation', 'POST', { agent, text });
-    return h.responseBuilder.speak(d.speech).reprompt('Confirma?').getResponse();
+    return dictate(h, agent, text, resolveProject(h.requestEnvelope));
+  },
+};
+
+const SendInstruction = {
+  canHandle: h => isIntent(h, 'SendInstructionIntent'),
+  async handle(h) {
+    const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
+    if (!text) {
+      return h.responseBuilder.speak('Qual é a instrução para o agente aberto?')
+        .reprompt('O que devo avisar ao agente?').getResponse();
+    }
+    return dictate(h, 'claude', text);
   },
 };
 
@@ -222,6 +274,6 @@ exports.handler = Alexa.SkillBuilders.custom()
   .addRequestInterceptors(AllowlistInterceptor)
   .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
     simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd,
-    AskAgent, CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
+    AskAgent, SendInstruction, simplePost('CancelRunIntent', '/runs/latest/cancel'), CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
   .addErrorHandlers(DeniedErrors, Errors)
   .lambda();

@@ -24,7 +24,8 @@ const speech = r => r.response.outputSpeech.ssml;
 let calls;
 function setup(reply = { speech: 'Vou criar o projeto meu-app. Confirma?', ok: true }) {
   process.env.BRIDGE_URL = 'http://bridge.test';
-  process.env.BRIDGE_SECRET = 's';
+  process.env.BRIDGE_CONTROL_SECRET = 'c';
+  process.env.BRIDGE_SECRET = 'segredo-de-agente';
   process.env.ALLOWED_USER_ID = OWNER;
   process.env.ALLOWED_DEVICE_ID = DEVICE;
   delete process.env.ALLOWED_SKILL_ID;

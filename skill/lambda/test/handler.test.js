@@ -26,7 +26,8 @@ const speech = r => r.response.outputSpeech.ssml;
 let calls;
 function setup() {
   process.env.BRIDGE_URL = 'http://bridge.test';
-  process.env.BRIDGE_SECRET = 's';
+  process.env.BRIDGE_CONTROL_SECRET = 'c';
+  process.env.BRIDGE_SECRET = 'segredo-de-agente';
   process.env.ALLOWED_USER_ID = OWNER;
   process.env.ALLOWED_DEVICE_ID = DEVICE;
   calls = [];
@@ -97,7 +98,7 @@ test('StatusIntent continua funcionando para o dono', async () => {
   const r = await handler(envelope(intent('StatusIntent')), {});
   assert.match(speech(r), /ok falado/);
   assert.strictEqual(calls[0].url, 'http://bridge.test/status');
-  assert.strictEqual(calls[0].opts.headers['x-secret'], 's');
+  assert.strictEqual(calls[0].opts.headers['x-secret'], 'c');
 });
 
 for (const [falado, esperado] of [['automático', 'auto'], ['tudo liberado', 'auto'], ['manual', 'manual'], ['decisões', 'decisoes']]) {
