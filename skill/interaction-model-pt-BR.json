@@ -13,9 +13,23 @@
         { "name": "ResultIntent", "samples": ["o que ele fez", "qual foi o resultado", "resumo", "me dá o resumo", "já terminou"] },
         { "name": "ApproveIntent", "slots": [{ "name": "pin", "type": "AMAZON.FOUR_DIGIT_NUMBER" }],
           "samples": ["aprovar", "aprovar com o pin {pin}", "aprovar pin {pin}", "pode aprovar", "autorizar", "autorizar com o pin {pin}"] },
-        { "name": "DenyIntent", "samples": ["negar", "recusar", "não aprovar", "bloquear"] }
+        { "name": "DenyIntent", "samples": ["negar", "recusar", "não aprovar", "bloquear"] },
+        { "name": "SetModeIntent", "slots": [{ "name": "modo", "type": "MODO" }],
+          "samples": ["modo {modo}", "coloca em modo {modo}", "deixa em {modo}", "muda para {modo}"] },
+        { "name": "ReportOnEndIntent", "slots": [{ "name": "ligado", "type": "LIGADO" }],
+          "samples": ["avisar no fim do ciclo", "{ligado} aviso de fim de ciclo"] }
       ],
-      "types": []
+      "types": [
+        { "name": "MODO", "values": [
+          { "id": "manual", "name": { "value": "manual" } },
+          { "id": "auto", "name": { "value": "auto", "synonyms": ["automático", "tudo liberado"] } },
+          { "id": "decisoes", "name": { "value": "decisões", "synonyms": ["decisoes"] } }
+        ] },
+        { "name": "LIGADO", "values": [
+          { "id": "ligar", "name": { "value": "ligar" } },
+          { "id": "desligar", "name": { "value": "desligar" } }
+        ] }
+      ]
     }
   }
 }

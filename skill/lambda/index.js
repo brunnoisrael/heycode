@@ -1,15 +1,13 @@
 const Alexa = require('ask-sdk-core');
 
-const BASE = process.env.BRIDGE_URL;      // ex.: https://agente.seudominio.com
-const SECRET = process.env.BRIDGE_SECRET;
-
+// Lidas a cada chamada: BRIDGE_URL ex.: https://agente.seudominio.com
 async function bridge(path, method = 'GET', body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 5000); // Alexa tem ~8s de limite
   try {
-    const r = await fetch(BASE + path, {
+    const r = await fetch(process.env.BRIDGE_URL + path, {
       method,
-      headers: { 'x-secret': SECRET, 'content-type': 'application/json' },
+      headers: { 'x-secret': process.env.BRIDGE_SECRET, 'content-type': 'application/json' },
       body: body ? JSON.stringify(body) : undefined,
       signal: ctrl.signal,
     });
@@ -62,6 +60,73 @@ const Deny = {
   },
 };
 
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+
+const MODE_BY_TEXT = { manual: 'manual', auto: 'auto', automatico: 'auto', 'tudo liberado': 'auto', decisoes: 'decisoes', decisao: 'decisoes' };
+
+function resolveMode(envelope) {
+  const slot = Alexa.getSlot(envelope, 'modo');
+  if (!slot || !slot.value) return null;
+  const auth = ((slot.resolutions || {}).resolutionsPerAuthority || [])
+    .find(a => a.status && a.status.code === 'ER_SUCCESS_MATCH');
+  const id = auth && auth.values && auth.values[0] && auth.values[0].value && auth.values[0].value.id;
+  if (id && ['manual', 'auto', 'decisoes'].includes(id)) return id;
+  return MODE_BY_TEXT[norm(slot.value)] || null;
+}
+
+const SetMode = {
+  canHandle: h => isIntent(h, 'SetModeIntent'),
+  async handle(h) {
+    const mode = resolveMode(h.requestEnvelope);
+    if (!mode) {
+      return h.responseBuilder.speak('Não entendi o modo. Diga manual, automático ou decisões.')
+        .reprompt('Qual modo: manual, automático ou decisões?').getResponse();
+    }
+    const d = await bridge('/mode', 'POST', { mode });
+    return h.responseBuilder.speak(d.speech).getResponse();
+  },
+};
+
+const OFF_WORDS = ['desligar', 'desligado', 'desliga', 'desligue', 'desativar', 'desativa'];
+const ReportOnEnd = {
+  canHandle: h => isIntent(h, 'ReportOnEndIntent'),
+  async handle(h) {
+    const v = norm(Alexa.getSlotValue(h.requestEnvelope, 'ligado'));
+    const d = await bridge('/mode', 'POST', { report_on_end: !OFF_WORDS.includes(v) });
+    return h.responseBuilder.speak(d.speech).getResponse();
+  },
+};
+
+// Allowlist: só o dono (userId + deviceId). Lida do env a cada requisição.
+class AccessDenied extends Error {
+  constructor(kind) { super('access denied: ' + kind); this.kind = kind; }
+}
+const AllowlistInterceptor = {
+  process(h) {
+    const env = h.requestEnvelope;
+    const sys = (env.context && env.context.System) || {};
+    const userId = (sys.user && sys.user.userId) || (env.session && env.session.user && env.session.user.userId);
+    const deviceId = sys.device && sys.device.deviceId;
+    const allowedUser = process.env.ALLOWED_USER_ID;
+    const allowedDevice = process.env.ALLOWED_DEVICE_ID;
+    if (!allowedUser || !allowedDevice) {
+      console.log(`ALLOWLIST NAO CONFIGURADA. userId=${userId} deviceId=${deviceId}`);
+      throw new AccessDenied('unconfigured');
+    }
+    if (userId !== allowedUser || deviceId !== allowedDevice) {
+      console.log(`ACESSO NEGADO. userId=${userId} deviceId=${deviceId}`);
+      throw new AccessDenied('denied');
+    }
+  },
+};
+
+const DeniedErrors = {
+  canHandle: (h, err) => err instanceof AccessDenied,
+  handle: (h, err) => h.responseBuilder.speak(err.kind === 'unconfigured'
+    ? 'A skill ainda não está configurada. Defina o usuário e o dispositivo permitidos nas variáveis de ambiente.'
+    : 'Acesso negado.').withShouldEndSession(true).getResponse(),
+};
+
 const Help = {
   canHandle: h => isIntent(h, 'AMAZON.HelpIntent'),
   handle: h => h.responseBuilder
@@ -93,7 +158,8 @@ const Errors = {
 };
 
 exports.handler = Alexa.SkillBuilders.custom()
+  .addRequestInterceptors(AllowlistInterceptor)
   .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
-    simple('ResultIntent', '/result'), Approve, Deny, Help, Stop, Fallback, SessionEnded)
-  .addErrorHandlers(Errors)
+    simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd, Help, Stop, Fallback, SessionEnded)
+  .addErrorHandlers(DeniedErrors, Errors)
   .lambda();
