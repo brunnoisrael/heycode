@@ -23,7 +23,13 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE TABLE IF NOT EXISTS instructions (
     id INTEGER PRIMARY KEY AUTOINCREMENT, text TEXT NOT NULL, agent TEXT NOT NULL,
     project TEXT, delivered INTEGER NOT NULL DEFAULT 0, t REAL);
+CREATE TABLE IF NOT EXISTS runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, project TEXT, prompt TEXT, cwd TEXT,
+    status TEXT NOT NULL DEFAULT 'rodando', summary TEXT, exit_code INTEGER, pid INTEGER,
+    t_start REAL, t_end REAL);
 """
+
+RUN_STATUS = ("rodando", "concluida", "falhou", "cancelada", "interrompida")
 
 
 class Store:
@@ -153,6 +159,56 @@ class Store:
             self._db.execute("UPDATE instructions SET delivered=1 WHERE id=?", (row["id"],))
             self._db.commit()
             return dict(row)
+
+    # execucoes de agentes (supervisor)
+    def create_run(self, agent: str, project: str, prompt: str, cwd: str) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "INSERT INTO runs (agent, project, prompt, cwd, status, t_start)"
+                " VALUES (?,?,?,?,'rodando',?)", (agent, project, prompt, cwd, time.time()))
+            self._db.commit()
+            return cur.lastrowid
+
+    def update_run(self, run_id: int, status: str | None = None, summary: str | None = None,
+                   exit_code: int | None = None, pid: int | None = None) -> None:
+        if status is not None and status not in RUN_STATUS:
+            raise ValueError(f"status invalido: {status!r}")
+        sets, args = [], []
+        for col, val in (("status", status), ("summary", summary),
+                         ("exit_code", exit_code), ("pid", pid)):
+            if val is not None:
+                sets.append(f"{col}=?")
+                args.append(val)
+        if status is not None and status != "rodando":
+            sets.append("t_end=?")
+            args.append(time.time())
+        if not sets:
+            return
+        with self._lock:
+            self._db.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id=?", (*args, run_id))
+            self._db.commit()
+
+    def get_run(self, run_id: int) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM runs WHERE id=?", (run_id,)).fetchone()
+        return dict(row) if row else None
+
+    def latest_run(self, agent: str | None = None) -> dict | None:
+        with self._lock:
+            if agent:
+                row = self._db.execute(
+                    "SELECT * FROM runs WHERE agent=? ORDER BY id DESC LIMIT 1", (agent,)).fetchone()
+            else:
+                row = self._db.execute("SELECT * FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+        return dict(row) if row else None
+
+    def interrupt_running(self) -> int:
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE runs SET status='interrompida', t_end=? WHERE status='rodando'",
+                (time.time(),))
+            self._db.commit()
+            return cur.rowcount
 
     # historico
     def log(self, kind: str, payload: dict) -> None:
