@@ -211,14 +211,35 @@ def _take_failure() -> str:
     return _failure_speech(run)
 
 
+def _take_finished() -> str:
+    """Proximo aviso da fila, falha ou resultado (ADR 0019): marca como falado e devolve a fala; senao, ""."""
+    failed = _take_failure()
+    if failed:
+        return failed
+    run = store.first_unreported()
+    if not run or run["status"] != "concluida":
+        return ""
+    store.mark_reported(run["id"])
+    result = (run.get("summary") or "sem resumo").strip()
+    return (f"O agente {run['agent']} terminou no projeto {run['project']}. Resultado: {result}"
+            + ("" if result[-1] in ".!?" else "."))
+
+
+_voice_runs: set[int] = set()  # runs pedidas por voz ainda em andamento (ADR 0019); reinicio as interrompe
+
+
 def _on_run_finished(run: dict):
     failed = run.get("status") == "falhou"
     if failed:
         push(f"{run['agent']} falhou", spoken_reason(run.get("summary")) or "Falhou sem motivo identificado")
     else:
         push(f"{run['agent']} terminou", short(run.get("summary") or "Tarefa concluida"))
-    # falha sempre entra na fila de voz; sucesso so com report_on_end (ADR 0017)
-    if failed or store.get_policy(run["agent"], run["project"])["report_on_end"]:
+    by_voice = run["id"] in _voice_runs
+    _voice_runs.discard(run["id"])
+    # falha sempre entra na fila de voz (ADR 0017); sucesso pedido por voz tambem (ADR 0019);
+    # o resto (run direta, cancelada) so com report_on_end
+    if failed or (by_voice and run.get("status") == "concluida") \
+            or store.get_policy(run["agent"], run["project"])["report_on_end"]:
         store.mark_unreported(run["id"])
 
 
@@ -246,7 +267,9 @@ def _start_run(agent: str, text: str, project) -> int:
     if cwd is None:
         raise ValueError(f"projeto nao encontrado: {project}")
     mode = store.get_policy(agent, project_of(cwd))["mode"]  # politica sempre do cwd final
-    return supervisor.start(agent, text, cwd, mode)
+    run_id = supervisor.start(agent, text, cwd, mode)
+    _voice_runs.add(run_id)  # caminho unico da voz (ditado e projeto novo): o fim volta por voz (ADR 0019)
+    return run_id
 
 
 def _open_session():
@@ -392,14 +415,14 @@ def get_mode(agent: Optional[str] = None, project: Optional[str] = None):
 def status():
     s = store.newest_session()
     if not s:
-        return {"speech": say(_take_failure()) or "Nenhuma sessão do Claude Code ativa no momento."}
+        return {"speech": say(_take_finished()) or "Nenhuma sessão do Claude Code ativa no momento."}
     waiting = store.pending_approvals()
     if waiting:
         return {"speech": say(f"No projeto {s['project']}, o agente está esperando a sua aprovação.")}
     ago = int(time.time() - s["updated"])
     when = "agora" if ago < 10 else f"há {ago // 60} minutos" if ago >= 90 else f"há {ago} segundos"
     detail = f", {s['detail']}" if s["detail"] else ""
-    failed = _take_failure()  # falha de run ainda nao falada vem antes do status da sessao (ADR 0017)
+    failed = _take_finished()  # falha ou resultado ainda nao falado vem antes do status da sessao (ADR 0017, 0019)
     return {"speech": say(f"{failed} No projeto {s['project']}, o agente está {s['status']}{detail}. "
                           f"Última atividade {when}.".strip())}
 

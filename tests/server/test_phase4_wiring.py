@@ -64,9 +64,13 @@ def test_report_on_end_avisa_e_o_resultado_le_o_resumo(client):
     assert "Nada pendente" in client.get("/pending").json()["speech"]
 
 
-def test_sem_report_on_end_nao_avisa(client):
-    run_id = _run_via_voice(client)
+def test_sem_report_on_end_run_direta_nao_avisa(client):
+    """Run que nao veio da voz (POST /runs) so avisa com report_on_end; a da voz sempre avisa (ADR 0019)."""
+    client.server.supervisor._commands = {"claude": FAKE}
+    run_id = client.post("/runs", json={"agent": "claude", "prompt": "x",
+                                        "cwd": client.server.PROJECTS_ROOT}).json()["run_id"]
     _wait(lambda: client.get(f"/runs/{run_id}").json()["status"] == "concluida")
+    time.sleep(0.3)  # deixa o callback de fim rodar
     assert "terminou" not in client.get("/pending").json()["speech"]
 
 
