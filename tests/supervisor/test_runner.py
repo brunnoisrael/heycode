@@ -6,7 +6,7 @@ from bridge.supervisor.runner import build_command
 def test_codex_auto():
     assert build_command("codex", "oi", "C:/p", "auto", "out.txt", {"codex": ["codex"]}) == [
         "codex", "exec", "-C", "C:/p", "-s", "danger-full-access", "--json", "-o", "out.txt",
-        "--skip-git-repo-check", "oi"]
+        "--skip-git-repo-check", "--", "oi"]
 
 
 @pytest.mark.parametrize("mode", ["manual", "decisoes"])
@@ -17,13 +17,13 @@ def test_codex_restrito(mode):
 
 def test_claude_auto():
     assert build_command("claude", "oi", "C:/p", "auto", "o", {"claude": ["claude"]}) == [
-        "claude", "-p", "oi", "--output-format", "json", "--dangerously-skip-permissions"]
+        "claude", "-p", "--output-format", "json", "--dangerously-skip-permissions", "--", "oi"]
 
 
 @pytest.mark.parametrize("mode", ["manual", "decisoes"])
 def test_claude_restrito(mode):
     assert build_command("claude", "oi", "C:/p", mode, "o", {"claude": ["claude"]}) == [
-        "claude", "-p", "oi", "--output-format", "json"]
+        "claude", "-p", "--output-format", "json", "--", "oi"]
 
 
 @pytest.mark.parametrize("mode", ["auto", "manual", "decisoes"])
@@ -40,3 +40,11 @@ def test_agente_desconhecido():
 def test_mapa_injetado_com_prefixo_multiplo():
     cmd = build_command("claude", "oi", ".", "manual", "o", {"claude": ["python", "-c", "x"]})
     assert cmd[:3] == ["python", "-c", "x"]
+
+
+@pytest.mark.parametrize("agent", ["codex", "claude"])
+@pytest.mark.parametrize("mode", ["auto", "manual", "decisoes"])
+def test_prompt_com_hifen_vem_depois_de_dashdash(agent, mode):
+    cmd = build_command(agent, "-v --help", "C:/p", mode, "o", {agent: [agent]})
+    assert cmd[-2:] == ["--", "-v --help"]
+    assert cmd.count("--") == 1
