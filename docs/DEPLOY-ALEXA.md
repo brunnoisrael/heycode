@@ -36,6 +36,7 @@ Na aba **Code**, defina (Alexa-hosted: arquivo/seccao de variaveis de ambiente; 
 | `BRIDGE_SECRET` | o mesmo valor do `.env` |
 | `ALLOWED_USER_ID` | seu userId da Alexa (ver abaixo) |
 | `ALLOWED_DEVICE_ID` | deviceId do seu aparelho (ver abaixo) |
+| `ALLOWED_SKILL_ID` | applicationId da sua skill (ver abaixo); com ele definido, outra skill e recusada sem chamar a ponte |
 
 ### Como descobrir os IDs
 
@@ -44,6 +45,8 @@ Com `ALLOWED_USER_ID` ainda **nao configurado**, a Lambda recusa qualquer pedido
 1. Deixe `ALLOWED_USER_ID` e `ALLOWED_DEVICE_ID` vazios e invoque a skill uma vez ("Alexa, abrir ponte claude" ou pela aba Test).
 2. Aba **Code > CloudWatch logs** (ou Logs no console Alexa-hosted): procure a linha com `userId` e `deviceId`.
 3. Copie os valores para `ALLOWED_USER_ID` e `ALLOWED_DEVICE_ID`, faca **Deploy** de novo e teste outra vez.
+
+O `applicationId` (formato `amzn1.ask.skill.<uuid>`) aparece no mesmo log, em `session.application.applicationId`, e tambem no Alexa Developer Console (aba **Build > Endpoint** ou **Distribution**, campo "Skill ID"). Copie para `ALLOWED_SKILL_ID`.
 
 Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a ponte.
 
@@ -59,6 +62,39 @@ Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a pont
 - "Alexa, pergunte a ponte claude o status" / "o que esta pendente" / "qual o resultado".
 - Aprovar: diga "aprovar" com o PIN; negar: "negar". O PIN vem do `.env` (`BRIDGE_PIN`).
 - Modos: "modo manual", "modo automatico" (aprova tudo, sem PIN), "modo decisoes"; aviso de fim de ciclo: "avisar no fim do ciclo".
+
+## 6. Ponte como servico fixo (tarefa agendada)
+
+Em vez de abrir o `run-bridge.ps1` na mao, instale a tarefa `RoomCodeBridge` (ao logon, janela oculta, reinicia em falha):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1 -DryRun            # so mostra
+powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1 -ReplaceExisting   # instala
+powershell -ExecutionPolicy Bypass -File scripts\uninstall-service.ps1                  # remove
+```
+
+- E idempotente: recria a tarefa se ela existir.
+- `-ReplaceExisting` encerra quem escuta na porta da ponte **somente** se a linha de comando contiver `server:app`; qualquer outro processo na porta nao e tocado (apenas aviso).
+- Teste de fumaca (porta livre, banco e segredo descartaveis, nao mexe no `.env`): `powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1`.
+
+## 7. Tunel nomeado (URL estavel)
+
+O tunel rapido muda de URL a cada execucao. Para uma URL fixa, use um dominio na sua conta Cloudflare:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup-named-tunnel.ps1 -Hostname ponte.seudominio.com -DryRun
+```
+
+O roteiro: `cloudflared tunnel login` (login seu no navegador), `tunnel create roomcode`, `tunnel route dns`, `config.yml` em `~\.cloudflared`, `cloudflared service install` (terminal de administrador). O script nunca faz o login por voce: pausa e manda rodar o comando. Depois ajuste `BRIDGE_URL` na Lambda para `https://ponte.seudominio.com` uma unica vez.
+
+## 8. Rotacao do segredo
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1
+```
+
+Gera novo `BRIDGE_SECRET` no `.env` (com backup `.env.bak-<data>`, que guarda o segredo antigo: apague-o), reinicia a tarefa e lista o que atualizar: Lambda (`BRIDGE_SECRET` + Deploy), hooks/ambiente do Claude Code e do Codex, e o registro MCP (`scripts\setup-agents.ps1`).
 
 ## Seguranca
 
