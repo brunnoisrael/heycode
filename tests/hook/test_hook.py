@@ -111,3 +111,19 @@ def test_approve_allow_deny_ask():
     finally:
         f.close()
     assert r.returncode == 0 and r.stdout == ""
+
+
+def test_stdin_utf8_chega_integro_ao_servidor():
+    f = Fake()
+    texto = "adicione validação de formulário"
+    texto2 = "ÍNDICE do Ártico"
+    payload = {"hook_event_name": "Notification", "message": texto, "extra": texto2}
+    env = dict(os.environ, BRIDGE_URL=f.url, BRIDGE_SECRET="s")
+    try:
+        r = subprocess.run([sys.executable, HOOK], input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                           capture_output=True, env=env, timeout=30)
+    finally:
+        f.close()
+    assert r.returncode == 0
+    assert f.calls[0][1]["message"] == texto
+    assert f.calls[0][1]["extra"] == texto2

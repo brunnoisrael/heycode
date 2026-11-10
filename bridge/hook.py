@@ -28,7 +28,7 @@ def agent_of(argv):
 try:
     argv = sys.argv[1:]
     agent = agent_of(argv)
-    data = json.load(sys.stdin)
+    data = json.loads(sys.stdin.buffer.read().decode("utf-8", errors="replace"))
     data["agent"] = agent
     if "approve" in argv:
         res = post("/approval", data, 55).get("decision")

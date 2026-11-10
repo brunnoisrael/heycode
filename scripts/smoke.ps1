@@ -1,6 +1,12 @@
 # Teste de fumaca: sobe a ponte numa porta livre, com banco temporario e segredo descartavel,
 # confere os contratos principais e encerra SOMENTE o processo que iniciou. Nao toca no .env.
+param([switch]$DryRun)
 $ErrorActionPreference = "Stop"
+if ($DryRun) {
+    Write-Host "[DryRun] subiria a ponte numa porta livre com BRIDGE_SECRET e BRIDGE_CONTROL_SECRET descartaveis e banco temporario;"
+    Write-Host "[DryRun] checaria /health, /status (controle 200, agente 401, sem header 401), /event (agente 200), /mcp, /mode (agente 401, controle 200); encerraria so o proprio processo."
+    exit 0
+}
 $root = Split-Path -Parent $PSScriptRoot
 $tmp = Join-Path ([IO.Path]::GetTempPath()) ("roomcode-smoke-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp | Out-Null
@@ -8,10 +14,17 @@ New-Item -ItemType Directory -Path $tmp | Out-Null
 $l = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
 $l.Start(); $port = $l.LocalEndpoint.Port; $l.Stop()
 
-$secret = -join ((1..24) | ForEach-Object { "{0:x2}" -f (Get-Random -Maximum 256) })
+function New-Hex($nBytes) {
+    $bytes = New-Object byte[] $nBytes
+    $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+    $rng.GetBytes($bytes); $rng.Dispose()
+    return (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
+}
+$secret = New-Hex 24    # segredo de agente
+$control = New-Hex 24   # segredo de controle
 $saved = @{}
-foreach ($k in "BRIDGE_SECRET", "BRIDGE_PIN", "BRIDGE_DB", "NTFY_TOPIC", "HA_WEBHOOK_URL") { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
-$env:BRIDGE_SECRET = $secret; $env:BRIDGE_PIN = "0000"; $env:BRIDGE_DB = Join-Path $tmp "smoke.db"
+foreach ($k in "BRIDGE_SECRET", "BRIDGE_CONTROL_SECRET", "BRIDGE_PIN", "BRIDGE_DB", "NTFY_TOPIC", "HA_WEBHOOK_URL") { $saved[$k] = [Environment]::GetEnvironmentVariable($k) }
+$env:BRIDGE_SECRET = $secret; $env:BRIDGE_CONTROL_SECRET = $control; $env:BRIDGE_PIN = "0000"; $env:BRIDGE_DB = Join-Path $tmp "smoke.db"
 $env:NTFY_TOPIC = ""; $env:HA_WEBHOOK_URL = ""
 
 $base = "http://127.0.0.1:$port"
@@ -45,13 +58,16 @@ try {
     if ($up) {
         Check "/health 200" ((Code "GET" "/health" @{} $null) -eq 200) ""
         Check "/status sem header 401" ((Code "GET" "/status" @{} $null) -eq 401) ""
-        Check "/status com header 200" ((Code "GET" "/status" @{ "x-secret" = $secret } $null) -eq 200) ""
+        Check "/status com segredo de controle 200" ((Code "GET" "/status" @{ "x-secret" = $control } $null) -eq 200) ""
+        Check "/status com segredo de agente 401" ((Code "GET" "/status" @{ "x-secret" = $secret } $null) -eq 401) ""
+        Check "/event com segredo de agente 200" ((Code "POST" "/event" @{ "x-secret" = $secret } '{"hook_event_name":"Notification","agent":"claude"}') -eq 200) ""
         $mcpBody = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"smoke","version":"1"}}}'
         $mcpH = @{ Accept = "application/json, text/event-stream" }
         Check "/mcp sem credencial 401" ((Code "POST" "/mcp" $mcpH $mcpBody) -eq 401) ""
         $mcpH["Authorization"] = "Bearer $secret"
         Check "/mcp com credencial 200" ((Code "POST" "/mcp" $mcpH $mcpBody) -eq 200) ""
-        Check "POST /mode 200" ((Code "POST" "/mode" @{ "x-secret" = $secret } '{"mode":"manual"}') -eq 200) ""
+        Check "POST /mode com segredo de agente 401" ((Code "POST" "/mode" @{ "x-secret" = $secret } '{"mode":"manual"}') -eq 401) ""
+        Check "POST /mode com segredo de controle 200" ((Code "POST" "/mode" @{ "x-secret" = $control } '{"mode":"manual"}') -eq 200) ""
     }
 } finally {
     if ($proc -and -not $proc.HasExited) {
