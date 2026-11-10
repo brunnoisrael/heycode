@@ -1,23 +1,37 @@
 """Servidor-ponte: recebe eventos dos hooks do Claude Code e responde a skill da Alexa."""
-import asyncio, hmac, json, os, re, threading, time, urllib.request, uuid
+import asyncio, hmac, json, os, re, sys, threading, time, urllib.request
+from contextlib import asynccontextmanager
+from typing import Literal, Optional
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # `uvicorn server:app` e testes
+
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
+
+from policy.engine import decidir
+from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
+from store.db import Store
 
 SECRET = os.environ["BRIDGE_SECRET"]            # obrigatório
 PIN = os.environ.get("BRIDGE_PIN", "")          # sem PIN = aprovação por voz desligada
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")   # opcional: push no celular via ntfy.sh
 APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
 
-# Comandos que NUNCA podem ser aprovados por voz (caem no prompt normal do Claude Code)
-NEVER_BY_VOICE = [
-    r"\brm\b", r"\bsudo\b", r"git\s+push", r"git\s+reset", r"git\s+clean", r"--force", r"\s-f\b",
-    r"\bdd\b", r"mkfs", r"chmod\s+-R", r"chown\s+-R", r"\|\s*(sh|bash)\b", r"drop\s+(table|database)",
-    r"deploy", r"kubectl\s+delete", r"terraform\s+(apply|destroy)", r"\bshutdown\b|\breboot\b",
-]
+DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
+DEFAULT_AGENT = "claude"
 
-app = FastAPI(title="claude-alexa-bridge")
-sessions: dict = {}
-approvals: dict = {}
+store = Store(DB_PATH)
+store.expire_pending()  # reinicio: aprovacoes pendentes expiram, sem reanexar
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    store.expire_pending()
+    yield
+
+
+app = FastAPI(title="claude-alexa-bridge", lifespan=lifespan)
+_summaries: dict = {}  # sid -> ultimo resumo (o store regrava a sessao a cada evento)
 lock = {"fails": 0, "until": 0.0}
 
 
@@ -74,60 +88,89 @@ def last_assistant_text(path: str) -> str:
     return ""
 
 
-def newest_session():
-    return max(sessions.values(), key=lambda s: s["updated"], default=None)
+def project_of(cwd) -> str:
+    return os.path.basename(cwd or "") or "projeto"
 
 
 @app.post("/event", dependencies=[Depends(auth)])
 def event(e: dict):
     sid = e.get("session_id", "?")
-    s = sessions.setdefault(sid, {"project": os.path.basename(e.get("cwd") or "") or "projeto",
-                                  "status": "ocioso", "detail": "", "summary": "", "updated": 0})
-    s["updated"] = time.time()
+    agent = e.get("agent") or DEFAULT_AGENT
+    project = project_of(e.get("cwd"))
+    status, detail = "ocioso", ""
     ev = e.get("hook_event_name")
     if ev == "UserPromptSubmit":
-        s.update(status="trabalhando", detail=f"na tarefa: {short(e.get('prompt'), 100)}")
+        status, detail = "trabalhando", f"na tarefa: {short(e.get('prompt'), 100)}"
     elif ev == "PreToolUse":
-        s.update(status="trabalhando", detail=describe_tool(e))
+        status, detail = "trabalhando", describe_tool(e)
     elif ev == "Notification":
-        s.update(status="aguardando", detail=short(e.get("message")))
-        push("Claude precisa de voce", short(e.get("message")))
+        status, detail = "aguardando", short(e.get("message"))
+        push("Claude precisa de voce", detail)
     elif ev == "Stop":
-        s.update(status="concluido", detail="", summary=last_assistant_text(e.get("transcript_path", "")))
-        push("Claude terminou", s["summary"] or "Tarefa concluida")
+        status = "concluido"
+        _summaries[sid] = last_assistant_text(e.get("transcript_path", ""))
+        push("Claude terminou", _summaries[sid] or "Tarefa concluida")
+    store.upsert_session(sid, agent, project, status, detail, _summaries.get(sid, ""))
     return {"ok": True}
 
 
 class ApprovalReq(BaseModel):
     session_id: str = ""
     tool_name: str = ""
-    tool_input: dict = {}
+    tool_input: Optional[dict] = None
     cwd: str = ""
+    agent: str = DEFAULT_AGENT
 
 
 @app.post("/approval", dependencies=[Depends(auth)])
 async def approval(r: ApprovalReq):
     cmd = (r.tool_input or {}).get("command", "")
-    if r.tool_name != "Bash" or not PIN or any(re.search(p, cmd, re.I) for p in NEVER_BY_VOICE):
+    cmd = cmd if isinstance(cmd, str) else ""
+    project = project_of(r.cwd)
+    d = decidir(r.agent, project, r.tool_name, r.tool_input, store)
+    if d in ("allow", "deny"):
+        return {"decision": d}
+    if d != "ask_voz" or not PIN:
         push("Claude precisa de voce", f"Aprovacao manual: {short(cmd or r.tool_name, 120)}")
         return {"decision": "ask"}
-    aid = uuid.uuid4().hex[:6]
-    approvals[aid] = {"event": asyncio.Event(), "decision": None, "command": cmd,
-                      "project": os.path.basename(r.cwd) or "projeto", "t": time.time()}
-    push("Aprovar por voz?", short(cmd, 120))
-    try:
-        await asyncio.wait_for(approvals[aid]["event"].wait(), APPROVAL_WAIT)
-    except asyncio.TimeoutError:
-        pass
-    return {"decision": approvals.pop(aid)["decision"] or "ask"}
+    aid = store.add_approval(r.agent, project, r.tool_name, cmd or r.tool_name, r.session_id)
+    push("Aprovar por voz?", short(cmd or r.tool_name, 120))
+    deadline = time.time() + APPROVAL_WAIT
+    while time.time() < deadline:
+        decision = store.get_approval(aid)["decision"]
+        if decision in ("allow", "deny"):
+            return {"decision": decision}
+        await asyncio.sleep(0.1)
+    if store.get_approval(aid)["decision"] is None:
+        store.resolve_approval(aid, "expired")
+    decision = store.get_approval(aid)["decision"]
+    return {"decision": decision if decision in ("allow", "deny") else "ask"}
+
+
+class ModeReq(BaseModel):
+    mode: Optional[Literal["manual", "auto", "decisoes"]] = None
+    report_on_end: Optional[bool] = None
+    agent: Optional[str] = None
+    project: Optional[str] = None
+
+
+@app.post("/mode", dependencies=[Depends(auth)])
+def set_mode(m: ModeReq):
+    store.set_policy(mode=m.mode, report_on_end=m.report_on_end, agent=m.agent, project=m.project)
+    return store.get_policy(m.agent, m.project)
+
+
+@app.get("/mode", dependencies=[Depends(auth)])
+def get_mode(agent: Optional[str] = None, project: Optional[str] = None):
+    return store.get_policy(agent, project)
 
 
 @app.get("/status", dependencies=[Depends(auth)])
 def status():
-    s = newest_session()
+    s = store.newest_session()
     if not s:
         return {"speech": "Nenhuma sessão do Claude Code ativa no momento."}
-    waiting = [a for a in approvals.values() if a["decision"] is None]
+    waiting = store.pending_approvals()
     if waiting:
         return {"speech": f"No projeto {s['project']}, o agente está esperando a sua aprovação."}
     ago = int(time.time() - s["updated"])
@@ -138,13 +181,13 @@ def status():
 
 @app.get("/pending", dependencies=[Depends(auth)])
 def pending():
-    waiting = sorted((a for a in approvals.values() if a["decision"] is None), key=lambda a: a["t"])
+    waiting = store.pending_approvals()
     if waiting:
         a = waiting[0]
         return {"actionable": True,
                 "speech": f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
                           "Diga aprovar com o seu PIN, ou negar."}
-    s = newest_session()
+    s = store.newest_session()
     if s and s["status"] == "aguardando":
         return {"actionable": False, "speech": f"O agente precisa de você no teclado: {s['detail']}"}
     return {"actionable": False, "speech": "Nada pendente. O agente não precisa de você agora."}
@@ -152,7 +195,7 @@ def pending():
 
 @app.get("/result", dependencies=[Depends(auth)])
 def result():
-    s = newest_session()
+    s = store.newest_session()
     if s and s["summary"]:
         return {"speech": f"Resumo do projeto {s['project']}: {s['summary']}"}
     return {"speech": "Ainda não há um resumo disponível."}
@@ -167,7 +210,7 @@ class Decision(BaseModel):
 def decide(d: Decision):
     if time.time() < lock["until"]:
         return {"speech": "Aprovação por voz bloqueada por alguns minutos. Use o teclado."}
-    waiting = sorted((a for a in approvals.values() if a["decision"] is None), key=lambda a: a["t"])
+    waiting = store.pending_approvals()
     if not waiting:
         return {"speech": "Não há nada aguardando decisão."}
     if d.approve:
@@ -178,8 +221,7 @@ def decide(d: Decision):
                 return {"speech": "PIN incorreto três vezes. Aprovação por voz bloqueada por cinco minutos."}
             return {"speech": "PIN incorreto."}
         lock["fails"] = 0
-    waiting[0]["decision"] = "allow" if d.approve else "deny"
-    waiting[0]["event"].set()
+    store.resolve_approval(waiting[0]["id"], "allow" if d.approve else "deny")
     return {"speech": "Aprovado. O agente vai continuar." if d.approve else "Negado. O agente foi informado."}
 
 
