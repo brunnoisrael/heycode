@@ -1,0 +1,13 @@
+{
+  "exempt_types": ["docs", "chore"],
+  "valid_types": ["feat", "fix", "docs", "chore", "test", "refactor"],
+  "spec_dir": "docs/superpowers/specs",
+  "architecture_paths": [
+    "bridge/policy/*",
+    "bridge/mcp/*",
+    "bridge/supervisor/*",
+    "bridge/store/*",
+    "skill/interaction-model-pt-BR.json"
+  ],
+  "adr_dir": "docs/adr"
+}
