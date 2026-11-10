@@ -20,6 +20,11 @@
           "samples": ["avisar no fim do ciclo", "{ligado} aviso de fim de ciclo"] },
         { "name": "AskAgentIntent", "slots": [{ "name": "agente", "type": "AGENTE" }, { "name": "instrucao", "type": "AMAZON.SearchQuery" }],
           "samples": ["peça ao {agente} {instrucao}", "manda o {agente} {instrucao}", "diz pro {agente} {instrucao}"] },
+        { "name": "CreateProjectIntent", "slots": [
+            { "name": "nome", "type": "NOME_PROJETO" },
+            { "name": "agente", "type": "AGENTE" },
+            { "name": "descricao", "type": "AMAZON.SearchQuery" }],
+          "samples": ["crie o projeto {nome} com o {agente} para {descricao}", "começa um projeto {nome} com o {agente} {descricao}"] },
         { "name": "ConfirmIntent", "samples": ["confirma", "pode mandar", "manda ver"] },
         { "name": "CancelDictationIntent", "samples": ["esquece", "cancela isso"] }
       ],
@@ -28,6 +33,11 @@
           { "id": "manual", "name": { "value": "manual" } },
           { "id": "auto", "name": { "value": "auto", "synonyms": ["automático", "tudo liberado"] } },
           { "id": "decisoes", "name": { "value": "decisões", "synonyms": ["decisoes"] } }
+        ] },
+        { "name": "NOME_PROJETO", "values": [
+          { "id": "meu-app", "name": { "value": "meu app" } },
+          { "id": "painel", "name": { "value": "painel" } },
+          { "id": "bot-de-estudos", "name": { "value": "bot de estudos" } }
         ] },
         { "name": "AGENTE", "values": [
           { "id": "claude", "name": { "value": "claude" } },

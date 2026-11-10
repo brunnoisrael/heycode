@@ -123,6 +123,24 @@ const AskAgent = {
   },
 };
 
+const CreateProject = {
+  canHandle: h => isIntent(h, 'CreateProjectIntent'),
+  async handle(h) {
+    const agent = resolveAgent(h.requestEnvelope);
+    const name = String(Alexa.getSlotValue(h.requestEnvelope, 'nome') || '').trim();
+    const description = String(Alexa.getSlotValue(h.requestEnvelope, 'descricao') || '').trim();
+    if (!agent || !name || !description) {
+      return h.responseBuilder
+        .speak('Diga o nome, o agente e a descrição. Por exemplo: crie o projeto meu app com o claude para um site de receitas.')
+        .reprompt('Qual o nome do projeto, o agente e a descrição?').getResponse();
+    }
+    const d = await bridge('/projects', 'POST', { name, agent, description });
+    const rb = h.responseBuilder.speak(d.speech);
+    if (d.ok !== false) rb.reprompt('Confirma?');
+    return rb.getResponse();
+  },
+};
+
 const simplePost = (intentName, path) => ({
   canHandle: h => isIntent(h, intentName),
   async handle(h) {
@@ -141,6 +159,15 @@ const AllowlistInterceptor = {
     const sys = (env.context && env.context.System) || {};
     const userId = (sys.user && sys.user.userId) || (env.session && env.session.user && env.session.user.userId);
     const deviceId = sys.device && sys.device.deviceId;
+    const allowedSkill = process.env.ALLOWED_SKILL_ID;
+    if (allowedSkill) {
+      const appId = (sys.application && sys.application.applicationId)
+        || (env.session && env.session.application && env.session.application.applicationId);
+      if (appId !== allowedSkill) {
+        console.log(`SKILL NEGADA. applicationId=${appId}`);
+        throw new AccessDenied('denied');
+      }
+    }
     const allowedUser = process.env.ALLOWED_USER_ID;
     const allowedDevice = process.env.ALLOWED_DEVICE_ID;
     if (!allowedUser || !allowedDevice) {
@@ -195,6 +222,6 @@ exports.handler = Alexa.SkillBuilders.custom()
   .addRequestInterceptors(AllowlistInterceptor)
   .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
     simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd,
-    AskAgent, simplePost('ConfirmIntent', '/dictation/confirm'), simplePost('CancelDictationIntent', '/dictation/cancel'), Help, Stop, Fallback, SessionEnded)
+    AskAgent, CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
   .addErrorHandlers(DeniedErrors, Errors)
   .lambda();

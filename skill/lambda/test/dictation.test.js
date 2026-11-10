@@ -64,18 +64,18 @@ test('AskAgentIntent sem instrucao ou agente nao chama a ponte', async () => {
   assert.ok(r2.response.reprompt);
 });
 
-test('ConfirmIntent faz POST /dictation/confirm', async () => {
+test('ConfirmIntent faz POST /confirm', async () => {
   setup({ speech: 'Enviado ao claude.', run_id: 3 });
   const r = await handler(envelope(intent('ConfirmIntent')), {});
-  assert.strictEqual(calls[0].url, 'http://bridge.test/dictation/confirm');
+  assert.strictEqual(calls[0].url, 'http://bridge.test/confirm');
   assert.strictEqual(calls[0].opts.method, 'POST');
   assert.match(speech(r), /Enviado/);
 });
 
-test('CancelDictationIntent faz POST /dictation/cancel', async () => {
+test('CancelDictationIntent faz POST /cancel', async () => {
   setup({ speech: 'Cancelado.' });
   const r = await handler(envelope(intent('CancelDictationIntent')), {});
-  assert.strictEqual(calls[0].url, 'http://bridge.test/dictation/cancel');
+  assert.strictEqual(calls[0].url, 'http://bridge.test/cancel');
   assert.match(speech(r), /Cancelado/);
 });
 
