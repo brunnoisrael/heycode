@@ -5,6 +5,8 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+import pytest
+
 HOOK = os.path.join(os.path.dirname(__file__), "..", "..", "bridge", "hook.py")
 
 
@@ -132,6 +134,7 @@ def test_stdin_utf8_chega_integro_ao_servidor():
     assert f.calls[0][1]["extra"] == texto2
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="usa caminho do Windows (barra invertida)")
 def test_stop_no_windows_usa_o_nome_da_pasta_como_projeto():
     f = Fake(instruction=None)
     try:

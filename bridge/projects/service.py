@@ -99,6 +99,7 @@ def scaffold_project(root: str, slug: str, template_repo: str) -> str:
             fp = os.path.join(hooks_src, fn)
             if os.path.isfile(fp):
                 _copy_lf(fp, os.path.join(hooks_dst, fn))
+                os.chmod(os.path.join(hooks_dst, fn), 0o755)  # sem bit de execucao o git ignora o hook (Linux/macOS)
         for d in ("docs/superpowers/specs", "docs/adr"):
             os.makedirs(os.path.join(path, d))
         with open(os.path.join(path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:
