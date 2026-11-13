@@ -95,6 +95,10 @@ def create_app(
     done: dict[str, str] = {}
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
     app.state.hub = hub
+
+    def audit(account_id: str, kind: str, result: str = "ok", **extra) -> None:
+        repo.add_audit(account_id, clock(), kind, result, **extra)
+
     csrf_key = secrets.token_bytes(32)  # por processo: reiniciar o relay exige entrar de novo no painel
 
     def _csrf_for(session_token: str) -> str:
@@ -263,6 +267,7 @@ def create_app(
     async def revoke(installation_id: str, account_id: str = Depends(current_account)) -> Response:
         if not repo.revoke_installation(account_id, installation_id):
             raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:revogar_computador", installation_id=installation_id)
         await hub.disconnect(installation_id)
         return Response(status_code=204)
 
@@ -333,6 +338,32 @@ def create_app(
 
     # --- dispositivos, instalacao padrao e exclusao da conta (ADR 0043, LGPD) ---
 
+    @app.get("/v1/audit")
+    def list_audit(
+        limit: int = 50,
+        before: int | None = None,
+        installation_id: str | None = None,
+        device_id: str | None = None,
+        result: str | None = None,
+        account_id: str = Depends(current_account),
+    ) -> list[dict]:
+        limit = max(1, min(limit, 100))
+        return repo.list_audit(account_id, limit, before, installation_id, device_id, result)
+
+    @app.get("/v1/audit/detail")
+    async def audit_detail(installation_id: str, limit: int = 20, account_id: str = Depends(current_account)) -> dict:
+        """Detalhe vindo do proprio computador, sob demanda: o relay repassa e esquece (ADR 0047)."""
+        if repo.get_owned_installation(account_id, installation_id) is None:
+            raise HTTPException(404, "nao encontrado")
+        limit = max(1, min(limit, 50))
+        envelope = frame("bridge-call", installation_id, {"method": "GET", "path": f"/voice/audit?limit={limit}"})
+        state, result = await hub.request(installation_id, account_id, envelope, sync_timeout)
+        if state == "offline":
+            raise HTTPException(503, "offline")
+        if state != "done" or not isinstance(result, dict) or result.get("status") != 200:
+            raise HTTPException(502, "computador nao respondeu")
+        return result["body"]
+
     @app.get("/v1/devices")
     def list_devices(account_id: str = Depends(current_account)) -> list[dict]:
         return repo.list_devices(account_id)
@@ -341,18 +372,21 @@ def create_app(
     def approve_device(body: DeviceBody, account_id: str = Depends(current_account)) -> Response:
         if not repo.approve_device(account_id, body.installation_id, body.device_id):
             raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:aprovar_dispositivo", installation_id=body.installation_id, device_id=body.device_id)
         return Response(status_code=204)
 
     @app.post("/v1/devices/deny", status_code=204)
     def deny_device(body: DeviceBody, account_id: str = Depends(current_account)) -> Response:
         if not repo.remove_device(account_id, body.installation_id, body.device_id, status="pending"):
             raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:negar_dispositivo", installation_id=body.installation_id, device_id=body.device_id)
         return Response(status_code=204)
 
     @app.delete("/v1/devices/{installation_id}/{device_id}", status_code=204)
     def revoke_device(installation_id: str, device_id: str, account_id: str = Depends(current_account)) -> Response:
         if not repo.remove_device(account_id, installation_id, device_id, status="approved"):
             raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:revogar_dispositivo", installation_id=installation_id, device_id=device_id)
         return Response(status_code=204)
 
     @app.put("/v1/default-installation", status_code=204)
@@ -360,6 +394,7 @@ def create_app(
         if repo.get_owned_installation(account_id, body.installation_id) is None:
             raise HTTPException(404, "nao encontrado")
         repo.set_default_installation(account_id, body.installation_id)
+        audit(account_id, "painel:instalacao_padrao", installation_id=body.installation_id)
         return Response(status_code=204)
 
     @app.delete("/v1/account", status_code=204)
@@ -413,25 +448,33 @@ def create_app(
             return JSONResponse(
                 _say("Para usar o HeyCode, vincule sua conta no aplicativo da Alexa.", card="LinkAccount")
             )
+        kind = (req.get("intent") or {}).get("name") or str(req.get("type") or "?")
+        device_id = (system.get("device") or {}).get("deviceId")
         inst, problem = _pick_installation(account_id)
         if inst is None:
+            audit(account_id, kind, "sem_computador", device_id=device_id)
             return JSONResponse(_say(problem or ""))
-        device_id = (system.get("device") or {}).get("deviceId")
         if not device_id:
+            audit(account_id, kind, "barrado", installation_id=inst["id"])
             return JSONResponse(_say("Nao consegui identificar este dispositivo."))
         status = repo.device_status(account_id, inst["id"], device_id)
         if status != "approved":
             if status is None:
                 repo.add_pending_device(account_id, inst["id"], device_id, clock(), MAX_PENDING_DEVICES)
+            audit(account_id, kind, "barrado", installation_id=inst["id"], device_id=device_id)
             return JSONResponse(
                 _say("Este dispositivo ainda nao foi autorizado. Autorize-o no aplicativo do HeyCode e tente de novo.")
             )
         if req.get("type") == "LaunchRequest" and not hub.is_online(inst["id"]):
+            audit(account_id, kind, "offline", installation_id=inst["id"], device_id=device_id)
             return JSONResponse(_say(f"O computador {inst['name']} esta offline."))
+        outcome = {"called": False, "result": "ok"}  # resultado da interacao para o rastro (sem conteudo)
 
         async def call(method: str, path: str, body: dict | None = None) -> dict:
             """Chama a ponte do computador pelo canal assinado; falhas viram BridgeUnavailable."""
+            outcome["called"] = True
             if repo.bump_usage(account_id, day_key(clock())) > daily_quota:
+                outcome["result"] = "cota"
                 raise BridgeUnavailable("cota", speech="Voce atingiu o limite diario de pedidos. Tente amanha.")
             payload: dict = {"method": method, "path": path}
             if body is not None:
@@ -439,17 +482,28 @@ def create_app(
             envelope = frame("bridge-call", inst["id"], payload)
             state, result = await hub.request(inst["id"], account_id, envelope, sync_timeout)
             if state == "offline":
+                outcome["result"] = "offline"
                 raise BridgeUnavailable("offline", speech=f"O computador {inst['name']} esta offline.")
             if state != "done" or not isinstance(result, dict) or not isinstance(result.get("body"), dict):
+                outcome["result"] = "erro"
                 raise BridgeUnavailable(state)
             status = result.get("status")
             if status == 403 and result["body"].get("speech"):  # recusa explicada pelo computador (auto, etc.)
+                outcome["result"] = "barrado"
                 return result["body"]
             if not isinstance(status, int) or status >= 400:
+                outcome["result"] = "erro"
                 raise BridgeUnavailable(f"ponte respondeu {status}")
             return result["body"]
 
         answer = await handle_voice(data, call)
+        audit(
+            account_id,
+            kind,
+            outcome["result"] if outcome["called"] else "sem_acao",
+            installation_id=inst["id"],
+            device_id=device_id,
+        )
         if req.get("type") == "LaunchRequest":
             spoken = answer["response"]["outputSpeech"]["text"]
             answer["response"]["outputSpeech"]["text"] = f"HeyCode conectado ao computador {inst['name']}. {spoken}"

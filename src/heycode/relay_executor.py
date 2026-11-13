@@ -15,6 +15,7 @@ ALLOWED: dict[tuple[str, str], set[str]] = {
     ("GET", "/status"): set(),
     ("GET", "/pending"): set(),
     ("GET", "/result"): set(),
+    ("GET", "/voice/audit"): {"limit"},
     ("GET", "/voice/projects"): {"offset"},
     ("GET", "/voice/projects/status"): {"project"},
     ("GET", "/voice/projects/resolve"): {"name"},

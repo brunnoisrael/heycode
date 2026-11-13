@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS devices (
   account_id TEXT NOT NULL, installation_id TEXT NOT NULL, device_id TEXT NOT NULL,
   status TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY (account_id, installation_id, device_id));
 CREATE TABLE IF NOT EXISTS account_settings (account_id TEXT PRIMARY KEY, default_installation TEXT);
+CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, t REAL NOT NULL, kind TEXT NOT NULL,
+  installation_id TEXT, device_id TEXT, result TEXT NOT NULL, label TEXT);
+CREATE INDEX IF NOT EXISTS audit_account ON audit (account_id, id);
 CREATE TABLE IF NOT EXISTS usage (
   account_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (account_id, day));
 """
@@ -267,6 +271,7 @@ class SqliteRepository:
         with self._lock, self._db:
             ids = [r[0] for r in self._db.execute("SELECT id FROM installations WHERE account_id=?", (account_id,))]
             for table in (
+                "audit",
                 "sessions",
                 "installations",
                 "devices",
@@ -278,3 +283,51 @@ class SqliteRepository:
                 self._db.execute(f"DELETE FROM {table} WHERE account_id=?", (account_id,))  # nomes fixos
             self._db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
         return ids
+
+    # rastro (ADR 0047): so metadados, nunca conteudo
+    AUDIT_RETENTION = 30 * 86400.0
+
+    def add_audit(
+        self,
+        account_id: str,
+        t: float,
+        kind: str,
+        result: str,
+        installation_id: str | None = None,
+        device_id: str | None = None,
+        label: str | None = None,
+    ) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM audit WHERE t < ?", (t - self.AUDIT_RETENTION,))  # retencao de 30 dias
+            self._db.execute(
+                "INSERT INTO audit (account_id, t, kind, installation_id, device_id, result, label)"
+                " VALUES (?,?,?,?,?,?,?)",
+                (account_id, t, kind[:80], installation_id, device_id, result, label),
+            )
+
+    def list_audit(
+        self,
+        account_id: str,
+        limit: int,
+        before: int | None = None,
+        installation_id: str | None = None,
+        device_id: str | None = None,
+        result: str | None = None,
+    ) -> list[dict]:
+        sql = "SELECT id, t, kind, installation_id, device_id, result, label FROM audit WHERE account_id=?"
+        args: list = [account_id]
+        for column, value in (("installation_id", installation_id), ("device_id", device_id), ("result", result)):
+            if value:
+                sql += f" AND {column}=?"  # nomes de coluna fixos acima
+                args.append(value)
+        if before:
+            sql += " AND id < ?"
+            args.append(before)
+        sql += " ORDER BY id DESC LIMIT ?"
+        args.append(limit)
+        with self._lock:
+            return [dict(r) for r in self._db.execute(sql, args).fetchall()]
+
+    def count_audit(self) -> int:
+        with self._lock:
+            return self._db.execute("SELECT COUNT(*) FROM audit").fetchone()[0]

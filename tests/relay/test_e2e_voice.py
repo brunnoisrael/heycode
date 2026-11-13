@@ -38,6 +38,25 @@ class FakeBridge:
         path = request.url.path
         if path == "/status":
             return httpx.Response(200, json={"speech": "Nenhum agente em execução."})
+        if path == "/voice/audit":
+            return httpx.Response(
+                200,
+                json={
+                    "approvals": [
+                        {
+                            "id": 1,
+                            "agent": "claude",
+                            "project": "api",
+                            "tool": "Bash",
+                            "command": "ls",
+                            "decision": "allow",
+                            "t": 1.0,
+                        }
+                    ],
+                    "runs": [],
+                    "limit": 20,
+                },
+            )
         if path == "/pending":
             return httpx.Response(
                 200,
@@ -255,5 +274,27 @@ def test_dispositivo_nao_aprovado_nunca_chega_a_ponte(world):
         out = say(base, env, tok, "StatusIntent")
         assert "autorizado" in speech(out)  # dispositivo novo: so vira solicitacao pendente
         assert bridge.received == []
+    finally:
+        m.stop()
+
+
+def test_rastro_registra_o_resultado_e_o_detalhe_vem_do_computador(world):
+    base, env, tok, bridge, m = ready(world)
+    try:
+        auth = {
+            "Authorization": "Bearer "
+            + httpx.post(base + "/v1/login", json={"email": "a@exemplo.com", "password": "senha-bem-longa"}).json()[
+                "token"
+            ]
+        }
+        say(base, env, tok, "StatusIntent")
+        say(base, env, tok, "SetModeIntent", {"modo": "automatico"})  # barrado: auto nao liberado no computador
+        linhas = httpx.get(base + "/v1/audit", headers=auth).json()
+        por_tipo = {(r["kind"], r["result"]) for r in linhas}
+        assert ("StatusIntent", "ok") in por_tipo and ("SetModeIntent", "barrado") in por_tipo
+        assert "automatico" not in str(linhas)  # o que foi dito nao entra no rastro
+        detalhe = httpx.get(base + "/v1/audit/detail", params={"installation_id": m.id}, headers=auth)
+        assert detalhe.status_code == 200 and detalhe.json()["approvals"][0]["decision"] == "allow"
+        assert bridge.received[-1][:2] == ("GET", "/voice/audit?limit=20")
     finally:
         m.stop()

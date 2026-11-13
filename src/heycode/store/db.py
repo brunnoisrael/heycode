@@ -132,6 +132,21 @@ class Store:
             self._db.commit()
             return cur.lastrowid
 
+    def recent_approvals(self, limit: int) -> list:
+        """Decisoes mais recentes primeiro. Nunca devolve a resposta livre (coluna `answer`)."""
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, agent, project, tool, command, decision, t FROM approvals"
+                " ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
+    def recent_runs(self, limit: int) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT id, agent, project, status, summary, t_start, t_end FROM runs"
+                " ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
+
     def get_approval(self, approval_id: int):
         with self._lock:
             row = self._db.execute(

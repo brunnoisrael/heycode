@@ -540,6 +540,29 @@ def decide(d: Decision):
     return {"speech": "Aprovado. O agente vai continuar." if d.approve else "Negado. O agente foi informado."}
 
 
+AUDIT_DEFAULT, AUDIT_MAX, AUDIT_TEXT = 20, 50, 200
+
+
+@app.get("/voice/audit", dependencies=[Depends(auth_control)])
+def voice_audit(limit: int = AUDIT_DEFAULT):
+    """Rastro para o painel web (ADR 0047): aprovacoes e execucoes recentes, so leitura, segredos mascarados."""
+    limit = max(1, min(limit, AUDIT_MAX))
+
+    def clip(text):
+        return mask_secrets(str(text or ""))[:AUDIT_TEXT]
+
+    approvals = [
+        {"id": a["id"], "agent": a["agent"], "project": a["project"], "tool": a["tool"],
+         "command": "" if a["tool"] == "pedir_resposta" else clip(a["command"]),  # pergunta aberta: sem texto
+         "decision": a["decision"] or "pending", "t": a["t"]}
+        for a in store.recent_approvals(limit)]
+    runs = [
+        {"id": r["id"], "agent": r["agent"], "project": r["project"], "status": r["status"],
+         "summary": clip(r["summary"]), "t_start": r["t_start"], "t_end": r["t_end"]}
+        for r in store.recent_runs(limit)]
+    return {"approvals": approvals, "runs": runs, "limit": limit}
+
+
 @app.get("/health")
 def health():
     return {"ok": True}
