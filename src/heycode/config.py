@@ -4,7 +4,8 @@ import os
 import secrets
 import shutil
 import sys
-from collections.abc import MutableMapping
+import time
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 
 REQUIRED_KEYS = ("BRIDGE_SECRET", "BRIDGE_CONTROL_SECRET", "BRIDGE_PIN")
@@ -38,12 +39,16 @@ def apply_env(values: dict[str, str], environ: MutableMapping[str, str] = os.env
 def _write_private(path: Path, text: str) -> None:
     """Escrita atomica com permissao restrita (0600 onde o sistema suporta)."""
     tmp = path.with_name(path.name + ".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
-        f.write(text)
-    if sys.platform != "win32":
-        os.chmod(tmp, 0o600)
-    os.replace(tmp, path)
+    try:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8", newline=chr(10)) as f:
+            f.write(text)
+        if sys.platform != "win32":
+            os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # nunca deixa arquivo parcial para tras
+        raise
 
 
 def _ensure_dir(home: Path) -> None:
@@ -104,3 +109,26 @@ def import_legacy(src: Path, home: Path) -> dict[str, list[str]]:
                 shutil.copyfile(source, dest)
             result["copied"].append(dest_name)
     return result
+
+
+ROTATABLE = ("BRIDGE_SECRET", "BRIDGE_CONTROL_SECRET")
+
+
+def rotate_secret(home: Path, now: Callable[[], float] = time.time, key: str = "BRIDGE_SECRET") -> Path:
+    """Gera um novo segredo no lugar do atual, com backup 0600 do arquivo anterior. Devolve o caminho do backup."""
+    if key not in ROTATABLE:
+        raise ValueError(f"so e possivel rotacionar: {', '.join(ROTATABLE)}")
+    path = Path(home) / "config.env"
+    if not path.is_file() or not load_env_file(path).get(key):
+        raise ValueError("config.env ou o segredo nao existe: rode `heycode init` antes")
+    old_text = path.read_text(encoding="utf-8")
+    values = load_env_file(path)
+    while True:
+        new = secrets.token_hex(32)
+        if new not in values.values():
+            break
+    backup = path.with_name(f"config.env.bak-{int(now())}")
+    _write_private(backup, old_text)
+    lines = [f"{key}={new}" if ln.split("=", 1)[0].strip() == key else ln for ln in old_text.splitlines()]
+    _write_private(path, chr(10).join(lines) + chr(10))
+    return backup

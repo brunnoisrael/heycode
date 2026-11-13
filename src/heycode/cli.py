@@ -16,6 +16,14 @@ def build_parser() -> argparse.ArgumentParser:
     serve = sub.add_parser("serve", help="sobe a ponte local (FastAPI + MCP em /mcp)")
     serve.add_argument("--host", default="127.0.0.1")
     serve.add_argument("--port", type=int, default=8765)
+    for name, text in (
+        ("install-service", "instala o serviço em segundo plano (dry-run por padrão)"),
+        ("uninstall-service", "remove o serviço (dry-run por padrão)"),
+    ):
+        sub.add_parser(name, help=text).add_argument("--apply", action="store_true", help="executa de verdade")
+    rot = sub.add_parser("rotate-secret", help="gera novo segredo com backup (dry-run por padrão)")
+    rot.add_argument("--apply", action="store_true", help="executa de verdade")
+    rot.add_argument("--control", action="store_true", help="rotaciona o segredo de controle (Lambda)")
     sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
 
@@ -42,6 +50,43 @@ def _cmd_init(args: argparse.Namespace) -> int:
         print(f"criado: {key}")
     for key in res["kept"]:
         print(f"já existe, mantido: {key}")
+    return 0
+
+
+def _cmd_service(args: argparse.Namespace) -> int:
+    from heycode import service
+
+    action = service.install if args.command == "install-service" else service.uninstall
+    try:
+        for line in action(apply=args.apply):
+            print(line)
+    except (RuntimeError, ValueError) as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _cmd_rotate(args: argparse.Namespace) -> int:
+    from heycode import config, paths, service
+
+    key = "BRIDGE_CONTROL_SECRET" if args.control else "BRIDGE_SECRET"
+    update = (
+        "a variável BRIDGE_CONTROL_SECRET da Lambda"
+        if args.control
+        else "a variável BRIDGE_SECRET nos hooks e no MCP dos agentes (Claude Code, Codex) e reinicie-os"
+    )
+    if not args.apply:
+        print(f"[dry-run] rotacionaria {key} (com backup 0600 do config.env). Use --apply para executar.")
+        print(f"Depois será preciso atualizar {update}.")
+        return 0
+    try:
+        backup = config.rotate_secret(paths.home(), key=key)
+    except ValueError as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    print(f"{key} rotacionado. Backup do arquivo anterior: {backup} (apague quando não precisar mais).")
+    print("Serviço reiniciado." if service.restart() else "Serviço não reiniciado (instalado? use heycode serve).")
+    print(f"Atualize agora {update}.")
     return 0
 
 
@@ -81,6 +126,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_init(args)
     if args.command == "serve":
         return _cmd_serve(args)
+    if args.command in ("install-service", "uninstall-service"):
+        return _cmd_service(args)
+    if args.command == "rotate-secret":
+        return _cmd_rotate(args)
     return 0
 
 
