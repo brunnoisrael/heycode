@@ -13,7 +13,9 @@ from heycode.policy.redact import mask_secrets
 def uuid7(now: float | None = None) -> str:
     ms = int((time.time() if now is None else now) * 1000) & ((1 << 48) - 1)
     rand = int.from_bytes(os.urandom(10), "big")
-    value = (ms << 80) | (0x7 << 76) | ((rand >> 62) << 64) | (0x2 << 62) | (rand & ((1 << 62) - 1))
+    rand_a = (rand >> 62) & 0xFFF  # 12 bits, posicoes 64-75
+    rand_b = rand & ((1 << 62) - 1)  # 62 bits
+    value = (ms << 80) | (0x7 << 76) | (rand_a << 64) | (0x2 << 62) | rand_b
     return str(uuid.UUID(int=value))
 
 

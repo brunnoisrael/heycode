@@ -2,14 +2,24 @@
 
 from collections.abc import Callable
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from pydantic import BaseModel
+from starlette.websockets import WebSocketDisconnect
 
 from heycode.identity import IdentityError
 from heycode.identity.pairing import PairingService
+from heycode.identity.replay import ReplayWindow
+from heycode.identity.signing import verify
+from heycode.protocol import ProtocolError, validate
+from heycode.protocol.outbound import uuid7
 from heycode.relay.accounts import AccountError, Accounts
+from heycode.relay.hub import Hub
+from heycode.relay.limits import RateLimiter, day_key
 
 MAX_INSTALLATIONS = 2
+DAILY_QUOTA = 200
+SYNC_TIMEOUT = 4.0
+CLOSE_UNAUTHORIZED = 4401
 
 
 class Credentials(BaseModel):
@@ -27,13 +37,30 @@ class PendingBody(BaseModel):
     pending_id: str
 
 
-def create_app(repo, clock: Callable[[], float]) -> FastAPI:
+class SkillRequest(BaseModel):
+    installation_id: str | None = None
+    text: str
+    destination: str
+    agent: str | None = None
+
+
+def create_app(
+    repo,
+    clock: Callable[[], float],
+    *,
+    sync_timeout: float = SYNC_TIMEOUT,
+    daily_quota: int = DAILY_QUOTA,
+) -> FastAPI:
     app = FastAPI(title="HeyCode relay")
     accounts = Accounts(repo, clock)
     pairing = PairingService(clock)
+    hub = Hub()
+    replay = ReplayWindow()
+    login_limiter = RateLimiter(clock, limit=10, window=60.0)
     names: dict[str, str] = {}
     done: dict[str, str] = {}
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
+    app.state.hub = hub
 
     def current_account(authorization: str | None = Header(default=None)) -> str:
         token = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None
@@ -63,7 +90,10 @@ def create_app(repo, clock: Callable[[], float]) -> FastAPI:
             raise HTTPException(400, exc.code) from exc
 
     @app.post("/v1/login")
-    def login(body: Credentials) -> dict:
+    def login(body: Credentials, request: Request) -> dict:
+        source = request.client.host if request.client else "desconhecida"
+        if not login_limiter.allow(source):
+            raise HTTPException(429, "muitas tentativas")
         try:
             return {"token": accounts.login(body.email, body.password)}
         except AccountError as exc:
@@ -127,9 +157,106 @@ def create_app(repo, clock: Callable[[], float]) -> FastAPI:
         return repo.list_installations(account_id)
 
     @app.delete("/v1/installations/{installation_id}", status_code=204)
-    def revoke(installation_id: str, account_id: str = Depends(current_account)) -> Response:
+    async def revoke(installation_id: str, account_id: str = Depends(current_account)) -> Response:
         if not repo.revoke_installation(account_id, installation_id):
             raise HTTPException(404, "nao encontrado")
+        await hub.disconnect(installation_id)
         return Response(status_code=204)
+
+    # --- conexao da maquina e endpoint da skill ---
+
+    def authenticate_envelope(msg: object, expected: str | None = None) -> dict | None:
+        """Instalacao dona do envelope se estiver valido e assinado; None em qualquer duvida (falha fechada)."""
+        if not isinstance(msg, dict):
+            return None
+        try:
+            validate(msg)
+        except ProtocolError:
+            return None
+        iid = msg["installation_id"]
+        if expected is not None and iid != expected:
+            return None
+        inst = repo.get_installation(iid)
+        if inst is None or inst["revoked"]:
+            return None
+        try:
+            verify(msg, inst["public_key"], clock(), replay=replay)
+        except IdentityError:
+            return None
+        return inst
+
+    def frame(type_: str, installation_id: str, payload: dict, msg_id: str | None = None) -> dict:
+        # relay -> maquina: autenticado pelo TLS da conexao (ver threat-model), sem assinatura no MVP
+        return {
+            "v": 1,
+            "id": msg_id or uuid7(clock()),
+            "ts": clock(),
+            "installation_id": installation_id,
+            "type": type_,
+            "payload": payload,
+            "sig": "",
+        }
+
+    @app.websocket("/v1/connect")
+    async def connect(ws: WebSocket) -> None:
+        await ws.accept()
+        try:
+            inst = authenticate_envelope(await ws.receive_json())
+        except (WebSocketDisconnect, ValueError):
+            return
+        if inst is None:
+            await ws.close(code=CLOSE_UNAUTHORIZED)
+            return
+        iid = inst["id"]
+        repo.touch_installation(iid, clock())
+        await hub.attach(iid, ws)
+        try:
+            await ws.send_json(frame("status", iid, {"state": "idle"}))
+            while True:
+                msg = await ws.receive_json()
+                if authenticate_envelope(msg, expected=iid) is None:
+                    await ws.close(code=CLOSE_UNAUTHORIZED)
+                    return
+                repo.touch_installation(iid, clock())
+                reply_to = msg["payload"].get("in_reply_to")
+                if isinstance(reply_to, str):
+                    hub.resolve(iid, reply_to, msg["payload"])
+        except (WebSocketDisconnect, ValueError):
+            pass
+        finally:
+            hub.detach(iid, ws)
+
+    @app.post("/v1/skill/request")
+    async def skill_request(body: SkillRequest, account_id: str = Depends(current_account)) -> dict:
+        if body.installation_id is not None:
+            inst = repo.get_owned_installation(account_id, body.installation_id)
+            if inst is None:  # mesma resposta para inexistente e de outra conta
+                raise HTTPException(404, "not_found")
+        else:
+            owned = repo.list_installations(account_id)
+            if not owned:
+                raise HTTPException(404, "no_installation")
+            if len(owned) > 1:
+                raise HTTPException(409, "choose_installation")
+            inst = owned[0]
+        if repo.bump_usage(account_id, day_key(clock())) > daily_quota:
+            raise HTTPException(429, "quota_requests")
+        payload = {"text": body.text, "destination": body.destination}
+        if body.agent:
+            payload["agent"] = body.agent
+        envelope = frame("instruction", inst["id"], payload)
+        state, result = await hub.request(inst["id"], account_id, envelope, sync_timeout)
+        if state == "offline":
+            return {"state": "offline"}
+        if state == "pending":
+            return {"state": "pending", "request_id": envelope["id"]}
+        return {"state": "done", "request_id": envelope["id"], "result": result}
+
+    @app.get("/v1/skill/result/{request_id}")
+    def skill_result(request_id: str, account_id: str = Depends(current_account)) -> dict:
+        found = hub.result_for(account_id, request_id)
+        if found is None:
+            raise HTTPException(404, "not_found")
+        return found
 
     return app

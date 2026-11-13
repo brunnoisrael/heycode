@@ -83,3 +83,19 @@ def test_todos_os_tipos_tem_esquema_e_exemplo_valido():
     }
     for tipo, payload in exemplos.items():
         validate(_env(type=tipo, payload=payload))
+
+
+def test_uuid7_gerado_sempre_valida_no_esquema():
+    from heycode.protocol.outbound import uuid7
+
+    for i in range(500):
+        validate(_env(id=uuid7(1000.0 + i)))
+
+
+def test_uuid7_carrega_o_timestamp_em_milissegundos():
+    import uuid
+
+    from heycode.protocol.outbound import uuid7
+
+    u = uuid.UUID(uuid7(1_700_000_000.123))
+    assert u.version == 7 and (u.int >> 80) == 1_700_000_000_123

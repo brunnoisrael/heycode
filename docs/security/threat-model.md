@@ -30,6 +30,20 @@ Outra conta de usuário; operador ou invasor do relay; dispositivo de voz roubad
 | Segredo subindo ao relay | mascaramento antes de assinar | `test_segredo_mascarado_antes_de_sair` |
 | Relay fora do ar trava o agente | envio falha aberto; confirmações expiram | `test_relay_fora_nao_trava_agente` |
 
+## Ameaças do relay (P3)
+
+| Ameaça | Controle | Teste |
+|---|---|---|
+| Conta A pede algo à instalação de B pela skill | instalação resolvida só entre as da conta; resposta idêntica para inexistente e alheia | `test_skill_de_a_nao_alcanca_instalacao_de_b` |
+| Conta B lê o resultado de A | resultado só para a conta que fez o pedido | `test_resultado_de_a_nao_e_lido_por_b` |
+| Máquina de B resolve pedido de A | só a instalação que recebeu o pedido o resolve | `test_maquina_nao_resolve_pedido_de_outra_conta` |
+| Handshake forjado, repetido ou de instalação revogada | assinatura, anti-replay e revogação em todo envelope | `test_assinatura_invalida_recusada`, `test_replay_do_handshake_recusado`, `test_instalacao_revogada_nao_conecta` |
+| Revogação não derruba quem já está conectado | `DELETE` fecha a conexão | `test_revogar_derruba_a_conexao_ativa` |
+| Enumeração de contas e força bruta no login | resposta única e limite de 10 tentativas/min por origem | `test_senha_errada_e_email_inexistente_dao_o_mesmo_erro`, `test_login_tem_limite_de_taxa_por_origem` |
+| Custo descontrolado | cota diária por conta | `test_cota_diaria_conta_pedidos_e_zera_no_dia_seguinte` |
+| Segredo em log do relay | o relay não registra corpo de pedidos nem senhas | `test_logs_do_relay_nao_contem_segredo` |
+| Relay comprometido forja pedidos à máquina | **risco aceito no MVP** (quadros do relay sem assinatura, ADR 0038); mitigação na P6 | n/a |
+
 ## Riscos aceitos e lacunas
 
 - Relay comprometido vê metadados (quem, quando, qual projeto) e texto já mascarado; não vê a chave privada nem consegue assinar por uma instalação.
