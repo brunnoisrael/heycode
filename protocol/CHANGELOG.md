@@ -10,3 +10,4 @@ Regras (ADR 0029): campo opcional novo mantém a versão; remoção, renomeaçã
 
 - `payload.in_reply_to` (opcional, string): id do envelope de pedido a que a resposta se refere (ADR 0038).
 - Quadros do relay para a máquina podem ter `sig` vazio (ADR 0038).
+- Tipos novos e aditivos `bridge-call` (relay para máquina: `method` GET/POST, `path`, `body?`) e `bridge-result` (máquina para relay: `status`, `body`), ADR 0044. Clientes antigos ignoram o quadro.

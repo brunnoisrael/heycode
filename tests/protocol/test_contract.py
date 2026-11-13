@@ -99,3 +99,18 @@ def test_uuid7_carrega_o_timestamp_em_milissegundos():
 
     u = uuid.UUID(uuid7(1_700_000_000.123))
     assert u.version == 7 and (u.int >> 80) == 1_700_000_000_123
+
+
+def test_bridge_call_valido_e_metodo_fora_da_lista_recusado():
+    validate(_env(type="bridge-call", payload={"method": "GET", "path": "/status"}))
+    validate(_env(type="bridge-call", payload={"method": "POST", "path": "/decide", "body": {"approve": False}}))
+    for bad in ({"method": "DELETE", "path": "/status"}, {"method": "GET"}, {"method": "GET", "path": "status"}):
+        with pytest.raises(ProtocolError):
+            validate(_env(type="bridge-call", payload=bad))
+
+
+def test_bridge_result_exige_status_inteiro_e_corpo_objeto():
+    validate(_env(type="bridge-result", payload={"status": 200, "body": {"speech": "ok"}}))
+    for bad in ({"status": "200", "body": {}}, {"status": 200}, {"status": 200, "body": "texto"}):
+        with pytest.raises(ProtocolError):
+            validate(_env(type="bridge-result", payload=bad))

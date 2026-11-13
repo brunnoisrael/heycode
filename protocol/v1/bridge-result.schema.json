@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/bridge-result",
+  "type": "object",
+  "required": [
+    "status",
+    "body"
+  ],
+  "properties": {
+    "status": {
+      "type": "integer"
+    },
+    "body": {
+      "type": "object"
+    }
+  }
+}

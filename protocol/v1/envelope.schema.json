@@ -36,7 +36,9 @@
         "run-result",
         "pair-request",
         "pair-confirm",
-        "error"
+        "error",
+        "bridge-call",
+        "bridge-result"
       ]
     },
     "payload": {
