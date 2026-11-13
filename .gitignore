@@ -7,3 +7,6 @@ node_modules/
 .superpowers/
 .env.*
 skill/lambda/env.json
+.coverage
+cov.json
+coverage.json

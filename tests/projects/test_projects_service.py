@@ -1,4 +1,6 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -69,10 +71,22 @@ def test_hooks_funcionam_no_projeto_novo(tmp_path):
     assert bad.returncode != 0
     assert "Spec" in bad.stderr + bad.stdout
     spec = p / "docs" / "superpowers" / "specs" / "s.md"
-    spec.write_text("# spec", encoding="utf-8")
+    spec.write_text("# spec\n\nStatus: rascunho\n", encoding="utf-8")
+    git(p, "add", "-A")
+    draft = git(p, "commit", "-m", "feat: algo\n\nSpec: docs/superpowers/specs/s.md")
+    assert draft.returncode != 0
+    assert "aprovada" in draft.stderr + draft.stdout
+    spec.write_text("# spec\n\nStatus: aprovada pelo dono\n", encoding="utf-8")
     git(p, "add", "-A")
     ok = git(p, "commit", "-m", "feat: algo\n\nSpec: docs/superpowers/specs/s.md")
     assert ok.returncode == 0, ok.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bit de execucao so existe em Linux/macOS")
+def test_hooks_do_scaffold_sao_executaveis(tmp_path):
+    p = Path(scaffold_project(str(tmp_path), "exec-app", REPO))
+    for hook in (p / ".githooks").iterdir():
+        assert os.access(hook, os.X_OK), hook.name
 
 
 def test_scaffold_nao_sobrescreve(tmp_path):

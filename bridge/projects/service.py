@@ -42,7 +42,8 @@ Regras para qualquer agente de código (Claude Code, Codex, Aider) que trabalhe 
 
 - Formato de commit: `tipo: descrição`, com tipo em `feat|fix|docs|chore|test|refactor`.
 - `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:` apontando para uma spec existente
-  (linha própria, depois de uma linha em branco). `docs` e `chore` são isentos.
+  (linha própria, depois de uma linha em branco) e a spec precisa ter `Status: aprovada` (aprovação do dono, nunca
+  do agente) nas 10 primeiras linhas. `docs` e `chore` são isentos.
 - Mudança de arquitetura (caminhos em `scripts/gates/gates.json`) exige um ADR **novo** em `docs/adr/`.
 - Se os hooks não estiverem ativos: `git config core.hooksPath .githooks`.
 
@@ -91,13 +92,14 @@ def scaffold_project(root: str, slug: str, template_repo: str) -> str:
         os.makedirs(hooks_dst)
         gates_src = os.path.join(template_repo, "scripts", "gates")
         for fn in sorted(os.listdir(gates_src)):
-            if fn.endswith((".py", ".json")):
+            if fn.endswith((".py", ".json", ".toml")):
                 shutil.copyfile(os.path.join(gates_src, fn), os.path.join(gates_dst, fn))
         hooks_src = os.path.join(template_repo, ".githooks")
         for fn in sorted(os.listdir(hooks_src)):
             fp = os.path.join(hooks_src, fn)
             if os.path.isfile(fp):
                 _copy_lf(fp, os.path.join(hooks_dst, fn))
+                os.chmod(os.path.join(hooks_dst, fn), 0o755)  # sem bit de execucao o git ignora o hook (Linux/macOS)
         for d in ("docs/superpowers/specs", "docs/adr"):
             os.makedirs(os.path.join(path, d))
         with open(os.path.join(path, "AGENTS.md"), "w", encoding="utf-8", newline="\n") as f:

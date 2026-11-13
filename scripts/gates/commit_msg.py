@@ -1,9 +1,14 @@
 """Gate commit-msg: exige trailer `Spec:` para tipos nao isentos."""
+
 import json
 import posixpath
 import re
 import sys
 from pathlib import Path
+
+sys.dont_write_bytecode = True  # hooks nao deixam __pycache__ no projeto
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from spec_status import DEFAULT_PATTERN, check_spec_approved  # noqa: E402
 
 CONFIG_PATH = Path(__file__).with_name("gates.json")
 TYPE_RE = re.compile(r"^([A-Za-z]+)(\([^)]*\))?!?:")
@@ -37,9 +42,10 @@ def check_commit_message(message: str, repo_root: Path, config: dict) -> list[st
     spec_dir = config["spec_dir"].strip("/")
     if not path.startswith(spec_dir + "/"):
         return [f"Spec deve estar em {spec_dir}/: {spec}"]
-    if not (Path(repo_root) / path).is_file():
+    spec_file = Path(repo_root) / path
+    if not spec_file.is_file():
         return [f"Spec inexistente: {spec}"]
-    return []
+    return check_spec_approved(spec_file, config.get("approved_status_regex", DEFAULT_PATTERN))
 
 
 def main(argv: list[str]) -> int:
