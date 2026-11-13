@@ -42,7 +42,8 @@ Regras para qualquer agente de código (Claude Code, Codex, Aider) que trabalhe 
 
 - Formato de commit: `tipo: descrição`, com tipo em `feat|fix|docs|chore|test|refactor`.
 - `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:` apontando para uma spec existente
-  (linha própria, depois de uma linha em branco). `docs` e `chore` são isentos.
+  (linha própria, depois de uma linha em branco) e a spec precisa ter `Status: aprovada` (aprovação do dono, nunca
+  do agente) nas 10 primeiras linhas. `docs` e `chore` são isentos.
 - Mudança de arquitetura (caminhos em `scripts/gates/gates.json`) exige um ADR **novo** em `docs/adr/`.
 - Se os hooks não estiverem ativos: `git config core.hooksPath .githooks`.
 
@@ -91,7 +92,7 @@ def scaffold_project(root: str, slug: str, template_repo: str) -> str:
         os.makedirs(hooks_dst)
         gates_src = os.path.join(template_repo, "scripts", "gates")
         for fn in sorted(os.listdir(gates_src)):
-            if fn.endswith((".py", ".json")):
+            if fn.endswith((".py", ".json", ".toml")):
                 shutil.copyfile(os.path.join(gates_src, fn), os.path.join(gates_dst, fn))
         hooks_src = os.path.join(template_repo, ".githooks")
         for fn in sorted(os.listdir(hooks_src)):

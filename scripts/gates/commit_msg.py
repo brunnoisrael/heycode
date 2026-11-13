@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # hooks nao deixam __pycache__ no projeto
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from spec_status import DEFAULT_PATTERN, check_spec_approved  # noqa: E402
 

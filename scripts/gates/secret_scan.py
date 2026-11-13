@@ -65,8 +65,21 @@ def scan_staged() -> list[str]:
     return scan_diff(out)
 
 
+def scan_range(base: str, head: str, repo: str = ".") -> list[str]:
+    """Varre cada commit do intervalo: um segredo adicionado e removido depois continua no historico."""
+    out = subprocess.run(
+        ["git", "-C", repo, "log", "-p", "-U0", "--no-color", f"{base}..{head}"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    return scan_diff(out)
+
+
 if __name__ == "__main__":
-    errors = scan_staged()
+    errors = scan_range(sys.argv[1], sys.argv[2]) if len(sys.argv) == 3 else scan_staged()
     for e in errors:
         print(e, file=sys.stderr)
     sys.exit(1 if errors else 0)

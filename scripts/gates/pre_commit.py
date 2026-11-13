@@ -7,6 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True  # hooks nao deixam __pycache__ no projeto
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint import run_lint  # noqa: E402
 from secret_scan import scan_staged  # noqa: E402
@@ -99,6 +100,11 @@ def _read_staged() -> list[tuple[str, str]]:
         encoding="utf-8",
         check=True,
     ).stdout
+    return parse_name_status(out)
+
+
+def parse_name_status(out: str) -> list[tuple[str, str]]:
+    """Interpreta `git diff --name-status -M -z`; renomeacao vira (D, antigo) + (A, novo)."""
     parts = out.split("\0")
     staged: list[tuple[str, str]] = []
     i = 0
@@ -121,7 +127,7 @@ def main() -> int:
     staged = _read_staged()
     errors = check_staged(staged, config)
     errors += scan_staged()
-    errors += run_lint([p for s, p in staged if s != "D"])
+    errors += run_lint([p for s, p in staged if s != "D"], format_files=[p for s, p in staged if s == "A"])
     for w in local_warnings([p for s, p in staged if s != "D"], _read_added_lines(), config):
         print(f"pre-commit (aviso, o CI bloqueia): {w}", file=sys.stderr)
     for e in errors:

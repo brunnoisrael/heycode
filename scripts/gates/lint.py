@@ -2,16 +2,24 @@
 
 import subprocess
 import sys
+from pathlib import Path
+
+# A configuracao viaja com os gates (o scaffold de projeto novo copia scripts/gates inteiro).
+CONFIG = str(Path(__file__).with_name("ruff.toml"))
 
 
-def run_lint(files: list[str], runner=subprocess.run) -> list[str]:
+def run_lint(files: list[str], runner=subprocess.run, format_files: list[str] | None = None) -> list[str]:
+    """`ruff check` em todo arquivo alterado; `ruff format --check` so nos novos (format_files).
+
+    Arquivos legados editados nao precisam ser reformatados por inteiro (isso estouraria o G12).
+    """
     py = [f for f in files if f.endswith(".py")]
     if not py:
         return []
-    commands = [
-        [sys.executable, "-m", "ruff", "check", *py],
-        [sys.executable, "-m", "ruff", "format", "--check", *py],
-    ]
+    fmt = py if format_files is None else [f for f in format_files if f.endswith(".py")]
+    commands = [[sys.executable, "-m", "ruff", "check", "--config", CONFIG, *py]]
+    if fmt:
+        commands.append([sys.executable, "-m", "ruff", "format", "--check", "--config", CONFIG, *fmt])
     errors: list[str] = []
     for cmd in commands:
         try:

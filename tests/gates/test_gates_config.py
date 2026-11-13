@@ -43,3 +43,7 @@ def test_regex_de_status_aprovado_compila(config):
     import re
 
     assert re.compile(config["approved_status_regex"], re.IGNORECASE).match("Status: aprovada pelo dono")
+
+
+def test_donos_humanos_configurados(config):
+    assert config["human_owners"] and all(isinstance(o, str) and o for o in config["human_owners"])
