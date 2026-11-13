@@ -35,8 +35,10 @@ jobs:
       - name: Dependencias
         run: python -m pip install -r requirements-dev.txt -r bridge/requirements.txt pip-audit==2.10.1
       - name: G8 acoes fixadas por hash
+        if: ${{ !cancelled() }}
         run: python scripts/gates/workflow_pins.py
       - name: G6 lint e formato dos arquivos Python alterados
+        if: ${{ !cancelled() }}
         run: |
           FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA..$HEAD_SHA" -- '*.py')
           NEW=$(git diff --name-only --diff-filter=A "$BASE_SHA..$HEAD_SHA" -- '*.py')
@@ -47,21 +49,27 @@ jobs:
             python -m ruff format --check --config scripts/gates/ruff.toml $NEW
           fi
       - name: G5 segredos em cada commit do intervalo
+        if: ${{ !cancelled() }}
         run: python scripts/gates/secret_scan.py "$BASE_SHA" "$HEAD_SHA"
       - name: G1-G4 e G12 em cada commit do intervalo
+        if: ${{ !cancelled() }}
         run: python scripts/gates/ci_range.py range "$BASE_SHA" "$HEAD_SHA"
       - name: G7 testes Python com cobertura
+        if: ${{ !cancelled() }}
         run: |
           python -m coverage run --branch --source=bridge,scripts/gates -m pytest -q
           python -m coverage json -o coverage.json
       - name: G7 cobertura das linhas novas e ramos da politica
+        if: ${{ !cancelled() }}
         run: python scripts/gates/diff_coverage.py "$BASE_SHA" "$HEAD_SHA" coverage.json
       - name: G7 testes da skill (Node)
+        if: ${{ !cancelled() }}
         working-directory: skill/lambda
         run: |
           npm ci
           npm test
       - name: G8 vulnerabilidades conhecidas
+        if: ${{ !cancelled() }}
         run: |
           python -m pip_audit
           cd skill/lambda && npm audit --audit-level=high
