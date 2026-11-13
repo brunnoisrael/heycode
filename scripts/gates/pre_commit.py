@@ -1,10 +1,15 @@
 """Gate pre-commit: mudanca de arquitetura exige um novo ADR no staging."""
+
 import fnmatch
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint import run_lint  # noqa: E402
+from secret_scan import scan_staged  # noqa: E402
 
 CONFIG_PATH = Path(__file__).with_name("gates.json")
 
@@ -13,15 +18,13 @@ def _is_new_adr(status: str, path: str, adr_dir: str) -> bool:
     prefix = adr_dir.strip("/") + "/"
     if status != "A" or not path.startswith(prefix):
         return False
-    name = path[len(prefix):]
+    name = path[len(prefix) :]
     return re.fullmatch(r"\d{4}-.+\.md", name) is not None and not name.startswith("0000-")
 
 
 def check_staged(staged: list[tuple[str, str]], config: dict) -> list[str]:
     patterns = config["architecture_paths"]
-    touched = [
-        p for _, p in staged if any(fnmatch.fnmatch(p, pat) for pat in patterns)
-    ]
+    touched = [p for _, p in staged if any(fnmatch.fnmatch(p, pat) for pat in patterns)]
     if not touched:
         return []
     if any(_is_new_adr(s, p, config["adr_dir"]) for s, p in staged):
@@ -75,7 +78,10 @@ def local_warnings(files: list[str], added_by_file: dict[str, int], config: dict
 def _read_added_lines() -> dict[str, int]:
     out = subprocess.run(
         ["git", "diff", "--cached", "--numstat", "-z"],
-        capture_output=True, text=True, encoding="utf-8", check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     ).stdout
     added: dict[str, int] = {}
     for entry in out.split("\0"):
@@ -88,7 +94,10 @@ def _read_added_lines() -> dict[str, int]:
 def _read_staged() -> list[tuple[str, str]]:
     out = subprocess.run(
         ["git", "diff", "--cached", "--name-status", "-M", "-z"],
-        capture_output=True, text=True, encoding="utf-8", check=True,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
     ).stdout
     parts = out.split("\0")
     staged: list[tuple[str, str]] = []
@@ -111,6 +120,8 @@ def main() -> int:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     staged = _read_staged()
     errors = check_staged(staged, config)
+    errors += scan_staged()
+    errors += run_lint([p for s, p in staged if s != "D"])
     for w in local_warnings([p for s, p in staged if s != "D"], _read_added_lines(), config):
         print(f"pre-commit (aviso, o CI bloqueia): {w}", file=sys.stderr)
     for e in errors:

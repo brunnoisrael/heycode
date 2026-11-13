@@ -1,4 +1,5 @@
 """Gate commit-msg: exige trailer `Spec:` para tipos nao isentos."""
+
 import json
 import posixpath
 import re

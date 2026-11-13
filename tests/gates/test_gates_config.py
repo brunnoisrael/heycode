@@ -16,7 +16,14 @@ def test_caminhos_protegidos_cobrem_a_esteira(config):
 
 def test_caminhos_de_revisao_humana_cobrem_o_nucleo_sensivel(config):
     human = set(config["human_review_paths"])
-    for p in ("bridge/policy/**", "bridge/store/**", "bridge/mcp/**", "bridge/supervisor/**", "skill/lambda/**", "docs/superpowers/specs/**"):
+    for p in (
+        "bridge/policy/**",
+        "bridge/store/**",
+        "bridge/mcp/**",
+        "bridge/supervisor/**",
+        "skill/lambda/**",
+        "docs/superpowers/specs/**",
+    ):
         assert p in human
 
 

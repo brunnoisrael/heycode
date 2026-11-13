@@ -1,5 +1,4 @@
 import pytest
-
 from commit_msg import check_commit_message
 from spec_status import check_spec_approved
 

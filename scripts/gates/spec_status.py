@@ -1,4 +1,5 @@
 """Gate G2: a spec citada no trailer `Spec:` precisa estar aprovada."""
+
 import re
 from pathlib import Path
 
