@@ -1,5 +1,6 @@
 """Aplicacao HTTP do relay (spec P3). A autoridade de conta vem do token de sessao, nunca do corpo."""
 
+import asyncio
 import base64
 import binascii
 import html
@@ -18,6 +19,7 @@ from heycode.identity.signing import verify
 from heycode.protocol import ProtocolError, validate
 from heycode.protocol.outbound import uuid7
 from heycode.relay.accounts import AccountError, Accounts
+from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
 from heycode.relay.limits import RateLimiter, day_key
 from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
@@ -26,6 +28,7 @@ __all__ = ["OAuthConfig", "create_app"]
 
 MAX_INSTALLATIONS = 2
 DAILY_QUOTA = 200
+MAX_PENDING_DEVICES = 10
 SYNC_TIMEOUT = 4.0
 CLOSE_UNAUTHORIZED = 4401
 
@@ -45,6 +48,19 @@ class PendingBody(BaseModel):
     pending_id: str
 
 
+class DeviceBody(BaseModel):
+    installation_id: str
+    device_id: str
+
+
+class DefaultInstallationBody(BaseModel):
+    installation_id: str
+
+
+class DeleteAccountBody(BaseModel):
+    password: str
+
+
 class SkillRequest(BaseModel):
     installation_id: str | None = None
     text: str
@@ -59,6 +75,7 @@ def create_app(
     sync_timeout: float = SYNC_TIMEOUT,
     daily_quota: int = DAILY_QUOTA,
     oauth: OAuthConfig | None = None,
+    alexa: AlexaVerifier | None = None,
 ) -> FastAPI:
     app = FastAPI(title="HeyCode relay")
     accounts = Accounts(repo, clock)
@@ -247,7 +264,118 @@ def create_app(
         except OAuthError as exc:
             return JSONResponse({"error": exc.code}, status_code=exc.status)
 
-    # --- conexao da maquina e endpoint da skill ---
+    # --- dispositivos, instalacao padrao e exclusao da conta (ADR 0043, LGPD) ---
+
+    @app.get("/v1/devices")
+    def list_devices(account_id: str = Depends(current_account)) -> list[dict]:
+        return repo.list_devices(account_id)
+
+    @app.post("/v1/devices/approve", status_code=204)
+    def approve_device(body: DeviceBody, account_id: str = Depends(current_account)) -> Response:
+        if not repo.approve_device(account_id, body.installation_id, body.device_id):
+            raise HTTPException(404, "nao encontrado")
+        return Response(status_code=204)
+
+    @app.post("/v1/devices/deny", status_code=204)
+    def deny_device(body: DeviceBody, account_id: str = Depends(current_account)) -> Response:
+        if not repo.remove_device(account_id, body.installation_id, body.device_id, status="pending"):
+            raise HTTPException(404, "nao encontrado")
+        return Response(status_code=204)
+
+    @app.delete("/v1/devices/{installation_id}/{device_id}", status_code=204)
+    def revoke_device(installation_id: str, device_id: str, account_id: str = Depends(current_account)) -> Response:
+        if not repo.remove_device(account_id, installation_id, device_id, status="approved"):
+            raise HTTPException(404, "nao encontrado")
+        return Response(status_code=204)
+
+    @app.put("/v1/default-installation", status_code=204)
+    def set_default(body: DefaultInstallationBody, account_id: str = Depends(current_account)) -> Response:
+        if repo.get_owned_installation(account_id, body.installation_id) is None:
+            raise HTTPException(404, "nao encontrado")
+        repo.set_default_installation(account_id, body.installation_id)
+        return Response(status_code=204)
+
+    @app.delete("/v1/account", status_code=204)
+    async def delete_account(body: DeleteAccountBody, account_id: str = Depends(current_account)) -> Response:
+        email = repo.get_account_email(account_id)
+        try:
+            accounts.check_credentials(email or "", body.password)
+        except AccountError as exc:
+            raise HTTPException(403, "senha incorreta") from exc
+        for iid in repo.delete_account(account_id):
+            await hub.disconnect(iid)
+        return Response(status_code=204)
+
+    # --- endpoint da skill compartilhada (ADR 0033, 0042) ---
+
+    def _say(text: str, *, end: bool = True, card: str | None = None) -> dict:
+        response: dict = {"outputSpeech": {"type": "PlainText", "text": text}, "shouldEndSession": end}
+        if card:
+            response["card"] = {"type": card}
+        return {"version": "1.0", "response": response}
+
+    def _pick_installation(account_id: str) -> tuple[dict | None, str | None]:
+        """(instalacao, fala de erro). Nunca adivinha entre varias e nunca sai da conta."""
+        owned = repo.list_installations(account_id)
+        if not owned:
+            return None, "Nenhum computador esta pareado a sua conta HeyCode. Pareie um pelo aplicativo."
+        default = repo.get_default_installation(account_id)
+        chosen = next((i for i in owned if i["id"] == default), None)
+        if chosen is None and len(owned) == 1:
+            chosen = owned[0]
+        if chosen is None:
+            return None, "Voce tem varios computadores. Escolha qual usar no aplicativo do HeyCode."
+        return chosen, None
+
+    @app.post("/v1/alexa")
+    async def alexa_endpoint(request: Request) -> JSONResponse:
+        if alexa is None:
+            raise HTTPException(404, "skill nao configurada")
+        body = await request.body()
+        try:
+            data = await asyncio.to_thread(alexa.verify, dict(request.headers), body)
+        except AlexaVerifyError as exc:
+            return JSONResponse({"error": exc.code}, status_code=400)  # nada e executado
+        system = data.get("context", {}).get("System", {})
+        req = data.get("request", {})
+        if req.get("type") == "SessionEndedRequest":
+            return JSONResponse({"version": "1.0", "response": {}})
+        token = (system.get("user") or {}).get("accessToken")
+        account_id = oauth_server.authenticate_access(token) if oauth_server else None
+        if account_id is None:
+            return JSONResponse(
+                _say("Para usar o HeyCode, vincule sua conta no aplicativo da Alexa.", card="LinkAccount")
+            )
+        inst, problem = _pick_installation(account_id)
+        if inst is None:
+            return JSONResponse(_say(problem or ""))
+        device_id = (system.get("device") or {}).get("deviceId")
+        if not device_id:
+            return JSONResponse(_say("Nao consegui identificar este dispositivo."))
+        status = repo.device_status(account_id, inst["id"], device_id)
+        if status != "approved":
+            if status is None:
+                repo.add_pending_device(account_id, inst["id"], device_id, clock(), MAX_PENDING_DEVICES)
+            return JSONResponse(
+                _say("Este dispositivo ainda nao foi autorizado. Autorize-o no aplicativo do HeyCode e tente de novo.")
+            )
+        if req.get("type") == "IntentRequest":
+            name = (req.get("intent") or {}).get("name", "")
+            if name == "AMAZON.HelpIntent":
+                return JSONResponse(
+                    _say(
+                        "O HeyCode conecta a Alexa aos seus agentes de codigo. Diga abrir o HeyCode para ver o estado.",
+                        end=False,
+                    )
+                )
+            if name in ("AMAZON.StopIntent", "AMAZON.CancelIntent", "AMAZON.NavigateHomeIntent"):
+                return JSONResponse(_say("Ate logo."))
+            return JSONResponse(_say("Esse comando ainda nao esta disponivel no modo compartilhado."))
+        if hub.is_online(inst["id"]):
+            return JSONResponse(_say(f"HeyCode conectado ao computador {inst['name']}.", end=False))
+        return JSONResponse(_say(f"O computador {inst['name']} esta offline."))
+
+    # --- conexao da maquina e endpoint da skill (pedidos autenticados) ---
 
     def authenticate_envelope(msg: object, expected: str | None = None) -> dict | None:
         """Instalacao dona do envelope se estiver valido e assinado; None em qualquer duvida (falha fechada)."""

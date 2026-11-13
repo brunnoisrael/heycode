@@ -37,3 +37,20 @@ def test_oauth_so_liga_com_cliente_segredo_e_redirects(tmp_path):
     )
     r = TestClient(app).get("/oauth/authorize", params={"client_id": "x", "redirect_uri": "https://b.example/cb"})
     assert r.status_code == 200
+
+
+def test_endpoint_da_alexa_so_liga_com_skill_id_e_oauth(tmp_path):
+    base = {"RELAY_DB": str(tmp_path / "r.db")}
+    with pytest.raises(RuntimeError):
+        build_app({**base, "ALEXA_SKILL_ID": "amzn1.ask.skill.x"})  # sem OAuth nao ha como vincular conta
+    sem = TestClient(build_app(base))
+    assert sem.post("/v1/alexa", content=b"{}").status_code == 404
+    full = {
+        **base,
+        "ALEXA_SKILL_ID": "amzn1.ask.skill.x",
+        "OAUTH_CLIENT_ID": "x",
+        "OAUTH_CLIENT_SECRET": "y",
+        "OAUTH_REDIRECT_URIS": "https://a.example/cb",
+    }
+    r = TestClient(build_app(full)).post("/v1/alexa", content=b"{}")
+    assert r.status_code == 400 and r.json()["error"] == "bad_cert_url"  # sem cabecalhos: recusa antes de qualquer rede

@@ -21,6 +21,10 @@ CREATE TABLE IF NOT EXISTS oauth_codes (
 CREATE TABLE IF NOT EXISTS oauth_tokens (
   token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, account_id TEXT NOT NULL, client_id TEXT NOT NULL,
   family TEXT NOT NULL, expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS devices (
+  account_id TEXT NOT NULL, installation_id TEXT NOT NULL, device_id TEXT NOT NULL,
+  status TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY (account_id, installation_id, device_id));
+CREATE TABLE IF NOT EXISTS account_settings (account_id TEXT PRIMARY KEY, default_installation TEXT);
 CREATE TABLE IF NOT EXISTS usage (
   account_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (account_id, day));
 """
@@ -46,6 +50,11 @@ class SqliteRepository:
         except sqlite3.IntegrityError:
             return None
         return aid
+
+    def get_account_email(self, account_id: str) -> str | None:
+        with self._lock:
+            row = self._db.execute("SELECT email FROM accounts WHERE id=?", (account_id,)).fetchone()
+        return row[0] if row else None
 
     def get_account_by_email(self, email: str) -> dict | None:
         with self._lock:
@@ -186,3 +195,86 @@ class SqliteRepository:
     def dump_oauth_hashes(self) -> list[str]:
         with self._lock:
             return [r[0] for r in self._db.execute("SELECT token_hash FROM oauth_tokens")]
+
+    # dispositivos e instalacao padrao (ADR 0043): tudo filtrado por conta
+    def set_default_installation(self, account_id: str, installation_id: str) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO account_settings VALUES (?,?) ON CONFLICT(account_id) DO UPDATE SET"
+                " default_installation=excluded.default_installation",
+                (account_id, installation_id),
+            )
+
+    def get_default_installation(self, account_id: str) -> str | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT default_installation FROM account_settings WHERE account_id=?", (account_id,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def device_status(self, account_id: str, installation_id: str, device_id: str) -> str | None:
+        with self._lock:
+            row = self._db.execute(
+                "SELECT status FROM devices WHERE account_id=? AND installation_id=? AND device_id=?",
+                (account_id, installation_id, device_id),
+            ).fetchone()
+        return row[0] if row else None
+
+    def add_pending_device(
+        self, account_id: str, installation_id: str, device_id: str, now: float, max_pending: int
+    ) -> bool:
+        """Registra a solicitacao; False se a conta ja tem o maximo de pendentes."""
+        with self._lock, self._db:
+            pending = self._db.execute(
+                "SELECT COUNT(*) FROM devices WHERE account_id=? AND status='pending'", (account_id,)
+            ).fetchone()[0]
+            if pending >= max_pending:
+                return False
+            self._db.execute(
+                "INSERT OR IGNORE INTO devices VALUES (?,?,?,'pending',?)",
+                (account_id, installation_id, device_id, now),
+            )
+        return True
+
+    def list_devices(self, account_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT installation_id, device_id, status FROM devices WHERE account_id=? ORDER BY created",
+                (account_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def approve_device(self, account_id: str, installation_id: str, device_id: str) -> bool:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "UPDATE devices SET status='approved' WHERE account_id=? AND installation_id=? AND device_id=?"
+                " AND status='pending'",
+                (account_id, installation_id, device_id),
+            )
+        return cur.rowcount == 1
+
+    def remove_device(self, account_id: str, installation_id: str, device_id: str, status: str | None = None) -> bool:
+        sql = "DELETE FROM devices WHERE account_id=? AND installation_id=? AND device_id=?"
+        args: tuple = (account_id, installation_id, device_id)
+        if status:
+            sql += " AND status=?"
+            args += (status,)
+        with self._lock, self._db:
+            return self._db.execute(sql, args).rowcount == 1
+
+    def delete_account(self, account_id: str) -> list[str]:
+        """Apaga a conta e tudo dela; devolve os ids das instalacoes para derrubar as conexoes (LGPD)."""
+        with self._lock, self._db:
+            ids = [r[0] for r in self._db.execute("SELECT id FROM installations WHERE account_id=?", (account_id,))]
+            for table in (
+                "sessions",
+                "installations",
+                "devices",
+                "account_settings",
+                "usage",
+                "oauth_tokens",
+                "oauth_codes",
+            ):
+                self._db.execute(f"DELETE FROM {table} WHERE account_id=?", (account_id,))  # nomes fixos
+            self._db.execute("DELETE FROM accounts WHERE id=?", (account_id,))
+        return ids

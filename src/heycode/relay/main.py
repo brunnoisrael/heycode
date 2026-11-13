@@ -4,6 +4,7 @@ import os
 import time
 from collections.abc import Mapping
 
+from heycode.relay.alexa_verify import AlexaVerifier
 from heycode.relay.app import DAILY_QUOTA, SYNC_TIMEOUT, OAuthConfig, create_app
 from heycode.relay.repo import SqliteRepository
 
@@ -19,12 +20,18 @@ def build_app(env: Mapping[str, str]):
         if not env.get("OAUTH_CLIENT_SECRET") or not uris:
             raise RuntimeError("OAUTH_CLIENT_ID exige OAUTH_CLIENT_SECRET e OAUTH_REDIRECT_URIS")
         oauth = OAuthConfig(env["OAUTH_CLIENT_ID"], env["OAUTH_CLIENT_SECRET"], uris)
+    alexa = None
+    if env.get("ALEXA_SKILL_ID"):
+        if oauth is None:
+            raise RuntimeError("ALEXA_SKILL_ID exige a configuracao OAUTH_* (account linking)")
+        alexa = AlexaVerifier(env["ALEXA_SKILL_ID"], time.time)
     return create_app(
         SqliteRepository(db),
         time.time,
         daily_quota=int(env.get("RELAY_DAILY_QUOTA", DAILY_QUOTA)),
         sync_timeout=float(env.get("RELAY_SYNC_TIMEOUT", SYNC_TIMEOUT)),
         oauth=oauth,
+        alexa=alexa,
     )
 
 
