@@ -35,6 +35,9 @@ def build_parser() -> argparse.ArgumentParser:
     auto = sub.add_parser("relay-auto", help="liga ou desliga o modo automático por voz no modo compartilhado")
     auto.add_argument("state", choices=["on", "off"])
     auto.add_argument("--yes", action="store_true", help="não pergunta a confirmação ao ligar")
+    from heycode import commands_cli
+
+    commands_cli.add_parsers(sub)
     sub.add_parser("connect", help="mantém a conexão de saída com o relay (reconecta sozinho)")
     sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
@@ -210,6 +213,12 @@ def _cmd_connect(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_command(args: argparse.Namespace) -> int:
+    from heycode import commands_cli, paths
+
+    return commands_cli.run(args, paths.home(), ask=input)
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     import json
     import os
@@ -275,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_connect(args)
     if args.command == "relay-auto":
         return _cmd_relay_auto(args)
+    if args.command == "command":
+        return _cmd_command(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
     if args.command == "rotate-secret":
