@@ -195,3 +195,65 @@ def test_frame_malformado_do_relay_e_ignorado(keys):
     client = make_client(keys, FakeConnect([ws]), handler, [], stop_after=1)
     asyncio.run(client.run_forever())
     assert calls == [1]
+
+
+def call_frame(path="/status", rid="018f0000-0000-7000-8000-00000000000b", method="GET"):
+    return {
+        "v": 1,
+        "id": rid,
+        "ts": 1.0,
+        "installation_id": "inst",
+        "type": "bridge-call",
+        "payload": {"method": method, "path": path},
+        "sig": "",
+    }
+
+
+def test_bridge_call_e_executado_e_respondido_como_bridge_result(keys):
+    pub, _ = keys
+    ws = FakeWS([ACK, call_frame(), ConnectionError("fim")])
+    seen = []
+
+    async def bridge(payload):
+        seen.append(payload)
+        return {"status": 200, "body": {"speech": "tudo certo"}}
+
+    async def handler(payload):
+        raise AssertionError("instruction nao deveria ser chamado")
+
+    client = make_client(keys, FakeConnect([ws]), handler, [], stop_after=1)
+    client._bridge = bridge
+    asyncio.run(client.run_forever())
+    reply = ws.sent[1]
+    verify(reply, pub, 1000.0)
+    assert reply["type"] == "bridge-result"
+    assert reply["payload"] == {
+        "status": 200,
+        "body": {"speech": "tudo certo"},
+        "in_reply_to": "018f0000-0000-7000-8000-00000000000b",
+    }
+    assert seen == [{"method": "GET", "path": "/status"}]
+
+
+def test_erro_no_executor_vira_error_e_a_sessao_continua(keys):
+    ws = FakeWS([ACK, call_frame(), call_frame(rid="018f0000-0000-7000-8000-00000000000c"), ConnectionError("fim")])
+    calls = []
+
+    async def bridge(payload):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("falha interna")
+        return {"status": 200, "body": {}}
+
+    client = make_client(keys, FakeConnect([ws]), lambda p: None, [], stop_after=1)
+    client._bridge = bridge
+    asyncio.run(client.run_forever())
+    assert ws.sent[1]["type"] == "error" and ws.sent[1]["payload"]["code"] == "handler_failed"
+    assert ws.sent[2]["type"] == "bridge-result"
+
+
+def test_sem_executor_configurado_bridge_call_e_ignorado(keys):
+    ws = FakeWS([ACK, call_frame(), ConnectionError("fim")])
+    client = make_client(keys, FakeConnect([ws]), lambda p: None, [], stop_after=1)
+    asyncio.run(client.run_forever())
+    assert len(ws.sent) == 1  # so o handshake: nada executado, nada respondido

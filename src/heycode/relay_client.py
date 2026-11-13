@@ -56,12 +56,14 @@ class RelayClient:
         clock: Callable[[], float] = time.time,
         connect: Callable = default_connect,
         sleep: Callable[[float], Awaitable] | None = None,
+        bridge: Handler | None = None,
     ) -> None:
         check_relay_url(url)
         self._url = url
         self._iid = installation_id
         self._key = private_key
         self._handler = handler
+        self._bridge = bridge
         self._clock = clock
         self._connect = connect
         self._sleep = sleep or asyncio.sleep
@@ -106,15 +108,17 @@ class RelayClient:
             except (ValueError, ProtocolError):
                 continue  # quadro malformado do relay: ignora
             if msg["type"] == "instruction":
-                await self._handle(ws, msg)
+                await self._handle(ws, msg, self._handler, "run-result")
+            elif msg["type"] == "bridge-call" and self._bridge is not None:
+                await self._handle(ws, msg, self._bridge, "bridge-result")
 
-    async def _handle(self, ws, msg: dict) -> None:
+    async def _handle(self, ws, msg: dict, handler: Handler, reply_type: str) -> None:
         request_id = msg["id"]
         try:
-            result = self._handler(msg["payload"])
+            result = handler(msg["payload"])
             if inspect.isawaitable(result):
                 result = await result
-            reply = self._envelope("run-result", {**result, "in_reply_to": request_id})
+            reply = self._envelope(reply_type, {**result, "in_reply_to": request_id})
         except Exception as exc:  # noqa: BLE001 - erro do agente nao derruba a sessao
             reply = self._envelope(
                 "error", {"code": "handler_failed", "message": type(exc).__name__, "in_reply_to": request_id}
@@ -138,6 +142,23 @@ def load_relay_config(home: Path) -> dict | None:
     if not path.is_file():
         return None
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def auto_allowed(home: Path) -> bool:
+    """Se o computador liberou o modo auto por voz no modo compartilhado (ADR 0045). Padrao: nao."""
+    try:
+        cfg = load_relay_config(home)
+    except (OSError, ValueError):
+        return False
+    return bool(cfg and cfg.get("auto_allowed") is True)
+
+
+def set_auto_allowed(home: Path, allowed: bool) -> None:
+    cfg = load_relay_config(home)
+    if cfg is None:
+        raise PairingError("este computador ainda nao foi pareado")
+    cfg["auto_allowed"] = allowed
+    relay_config_path(home).write_text(json.dumps(cfg), encoding="utf-8")
 
 
 def ws_url(relay_url: str) -> str:

@@ -32,6 +32,9 @@ def build_parser() -> argparse.ArgumentParser:
     pair.add_argument("--name", default=None, help="nome deste computador (padrão: nome da máquina)")
     pair.add_argument("--yes", action="store_true", help="não pergunta se o código de verificação confere")
     pair.add_argument("--force", action="store_true", help="gera uma identidade nova mesmo se já existir uma")
+    auto = sub.add_parser("relay-auto", help="liga ou desliga o modo automático por voz no modo compartilhado")
+    auto.add_argument("state", choices=["on", "off"])
+    auto.add_argument("--yes", action="store_true", help="não pergunta a confirmação ao ligar")
     sub.add_parser("connect", help="mantém a conexão de saída com o relay (reconecta sozinho)")
     sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
@@ -130,6 +133,25 @@ def _cmd_pair(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_relay_auto(args: argparse.Namespace) -> int:
+    from heycode import paths, relay_client
+
+    home = paths.home()
+    if relay_client.load_relay_config(home) is None:
+        print("Este computador ainda não foi pareado. Rode: heycode pair CÓDIGO --relay URL", file=sys.stderr)
+        return 1
+    if args.state == "on":
+        print("O modo automático aprova TUDO sem PIN e sem expiração (ADR 0002), inclusive rm -rf e git push --force.")
+        print("Ligando aqui, quem usar a skill por voz poderá pedir o modo automático.")
+        if not args.yes and input("Ligar mesmo assim? [s/N] ").strip().lower() not in ("s", "sim", "y", "yes"):
+            print("Mantido desligado.")
+            return 1
+    relay_client.set_auto_allowed(home, args.state == "on")
+    print("Modo automático por voz LIBERADO neste computador." if args.state == "on"
+          else "Modo automático por voz bloqueado neste computador.")
+    return 0
+
+
 def make_instruction_handler(store):
     """Tratador padrao: enfileira a instrucao para o agente aberto (mesma fila do ADR 0018)."""
 
@@ -142,11 +164,26 @@ def make_instruction_handler(store):
     return handler
 
 
+def _make_bridge_executor(home, config, relay_executor):
+    """Executor das chamadas do relay: segredo de controle lido so do config.env local (ADR 0045)."""
+    import os
+
+    from heycode import paths, relay_client
+
+    env = config.load_env_file(paths.config_file())
+    secret = env.get("BRIDGE_CONTROL_SECRET") or os.environ.get("BRIDGE_CONTROL_SECRET")
+    if not secret:
+        return None  # sem segredo de controle (heycode init) so o handler de instrucao funciona
+    base = os.environ.get("BRIDGE_URL") or "http://127.0.0.1:8765"
+    return relay_executor.BridgeExecutor(base, secret, auto_allowed=lambda: relay_client.auto_allowed(home))
+
+
 def _cmd_connect(args: argparse.Namespace) -> int:
     import asyncio
 
     from heycode import paths, relay_client
     from heycode.identity.keys import load_private_key
+    from heycode import config, relay_executor
     from heycode.store.db import Store
 
     home = paths.home()
@@ -160,6 +197,7 @@ def _cmd_connect(args: argparse.Namespace) -> int:
             cfg["installation_id"],
             load_private_key(home),
             make_instruction_handler(Store(str(paths.db_path()))),
+            bridge=_make_bridge_executor(home, config, relay_executor),
         )
     except (ValueError, OSError) as exc:
         print(f"Erro: {exc}", file=sys.stderr)
@@ -235,6 +273,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_pair(args)
     if args.command == "connect":
         return _cmd_connect(args)
+    if args.command == "relay-auto":
+        return _cmd_relay_auto(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
     if args.command == "rotate-secret":
