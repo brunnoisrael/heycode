@@ -3,7 +3,10 @@
 import asyncio
 import base64
 import binascii
+import hashlib
+import hmac
 import html
+import secrets
 from collections.abc import Callable
 from urllib.parse import parse_qs
 
@@ -18,7 +21,7 @@ from heycode.identity.replay import ReplayWindow
 from heycode.identity.signing import verify
 from heycode.protocol import ProtocolError, validate
 from heycode.protocol.outbound import uuid7
-from heycode.relay.accounts import AccountError, Accounts
+from heycode.relay.accounts import SESSION_TTL, AccountError, Accounts
 from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
 from heycode.relay.limits import RateLimiter, day_key
@@ -30,6 +33,8 @@ __all__ = ["OAuthConfig", "create_app"]
 
 MAX_INSTALLATIONS = 2
 DAILY_QUOTA = 200
+SESSION_COOKIE = "hc_session"
+SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_PENDING_DEVICES = 10
 SYNC_TIMEOUT = 4.0
 CLOSE_UNAUTHORIZED = 4401
@@ -90,15 +95,49 @@ def create_app(
     done: dict[str, str] = {}
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
     app.state.hub = hub
+    csrf_key = secrets.token_bytes(32)  # por processo: reiniciar o relay exige entrar de novo no painel
 
-    def current_account(authorization: str | None = Header(default=None)) -> str:
-        token = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None
-        account_id = accounts.authenticate(token)
-        if account_id is None and oauth_server is not None:
-            account_id = oauth_server.authenticate_access(token)  # token do account linking da Alexa
+    def _csrf_for(session_token: str) -> str:
+        return hmac.new(csrf_key, session_token.encode(), hashlib.sha256).hexdigest()
+
+    @app.middleware("http")
+    async def security_headers(request: Request, call_next):
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        if request.url.path.startswith(("/v1/panel", "/app")):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    def current_account(request: Request, authorization: str | None = Header(default=None)) -> str:
+        if authorization:  # API: heycode e Alexa, sem cookie e sem CSRF
+            token = authorization[7:] if authorization.lower().startswith("bearer ") else None
+            account_id = accounts.authenticate(token)
+            if account_id is None and oauth_server is not None:
+                account_id = oauth_server.authenticate_access(token)  # token do account linking da Alexa
+            if account_id is None:
+                raise HTTPException(401, "nao autenticado")
+            return account_id
+        cookie = request.cookies.get(SESSION_COOKIE)  # painel web (ADR 0046)
+        account_id = accounts.authenticate(cookie)
         if account_id is None:
             raise HTTPException(401, "nao autenticado")
+        if request.method not in SAFE_METHODS:
+            sent = request.headers.get("x-csrf-token", "")
+            if not hmac.compare_digest(sent.encode(), _csrf_for(cookie or "").encode()):
+                raise HTTPException(403, "csrf")
         return account_id
+
+    def _set_session_cookie(response: Response, token: str, request: Request) -> None:
+        response.set_cookie(
+            SESSION_COOKIE,
+            token,
+            max_age=int(SESSION_TTL),
+            httponly=True,
+            secure=request.url.scheme == "https",
+            samesite="strict",
+            path="/",
+        )
 
     def complete(pending_id: str, binding) -> dict:
         if repo.count_installations(binding.account_id) >= MAX_INSTALLATIONS:
@@ -134,6 +173,32 @@ def create_app(
     def logout(authorization: str | None = Header(default=None), _: str = Depends(current_account)) -> Response:
         accounts.logout(authorization[7:])  # type: ignore[index]  # current_account ja validou o formato
         return Response(status_code=204)
+
+    @app.post("/v1/panel/login")
+    def panel_login(body: Credentials, request: Request, response: Response) -> dict:
+        source = request.client.host if request.client else "desconhecida"
+        if not login_limiter.allow(source):
+            raise HTTPException(429, "muitas tentativas")
+        try:
+            token = accounts.login(body.email, body.password)
+        except AccountError as exc:
+            raise HTTPException(401, "credenciais invalidas") from exc
+        _set_session_cookie(response, token, request)
+        return {"ok": True}  # o token nunca vai no corpo: so no cookie HttpOnly
+
+    @app.get("/v1/panel/session")
+    def panel_session(request: Request, account_id: str = Depends(current_account)) -> dict:
+        token = request.cookies.get(SESSION_COOKIE, "")
+        return {"email": repo.get_account_email(account_id), "csrf": _csrf_for(token)}
+
+    @app.post("/v1/panel/logout", status_code=204)
+    def panel_logout(request: Request, _: str = Depends(current_account)) -> Response:
+        accounts.logout(request.cookies.get(SESSION_COOKIE, ""))
+        response = Response(status_code=204)
+        response.delete_cookie(
+            SESSION_COOKIE, path="/", secure=request.url.scheme == "https", httponly=True, samesite="strict"
+        )
+        return response
 
     @app.post("/v1/pair/codes")
     def issue_code(account_id: str = Depends(current_account)) -> dict:
