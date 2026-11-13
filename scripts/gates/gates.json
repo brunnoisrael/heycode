@@ -1,13 +1,47 @@
 {
+  "version": 2,
+  "enabled_gates": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G11", "G12", "G13", "G14", "G15", "G16"],
   "exempt_types": ["docs", "chore"],
   "valid_types": ["feat", "fix", "docs", "chore", "test", "refactor"],
   "spec_dir": "docs/superpowers/specs",
+  "approved_status_regex": "^.*Status:\\s*aprovad[ao]\\b",
   "architecture_paths": [
     "bridge/policy/*",
     "bridge/mcp/*",
     "bridge/supervisor/*",
     "bridge/store/*",
-    "skill/interaction-model-pt-BR.json"
+    "skill/interaction-model-pt-BR.json",
+    "relay/*",
+    "protocol/*",
+    "infra/*"
   ],
-  "adr_dir": "docs/adr"
+  "adr_dir": "docs/adr",
+  "protected_paths": [
+    "scripts/gates/**",
+    ".githooks/**",
+    ".github/**",
+    "AGENTS.md",
+    "CLAUDE.md",
+    ".claude/**",
+    "docs/SDLC.md",
+    ".gitleaks.toml",
+    "ruff.toml",
+    "LICENSE"
+  ],
+  "human_review_paths": [
+    "bridge/policy/**",
+    "bridge/store/**",
+    "bridge/mcp/**",
+    "bridge/supervisor/**",
+    "skill/lambda/**",
+    "skill/interaction-model-pt-BR.json",
+    "docs/superpowers/specs/**",
+    "docs/security/**",
+    "relay/**",
+    "protocol/**",
+    "infra/**"
+  ],
+  "max_added_lines": 400,
+  "diff_coverage_floor": 90,
+  "policy_branch_coverage_floor": 100
 }

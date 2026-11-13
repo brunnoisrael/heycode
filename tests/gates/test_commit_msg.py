@@ -9,7 +9,7 @@ VALID = "feat: algo\n\nSpec: docs/superpowers/specs/x.md"
 def repo(tmp_path):
     d = tmp_path / "docs" / "superpowers" / "specs"
     d.mkdir(parents=True)
-    (d / "x.md").write_text("spec", encoding="utf-8")
+    (d / "x.md").write_text("# T\n\nStatus: aprovada\n", encoding="utf-8")
     (tmp_path / "README.md").write_text("r", encoding="utf-8")
     return tmp_path
 
