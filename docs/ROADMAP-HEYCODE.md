@@ -16,8 +16,6 @@ Exemplo de um dia de trabalho:
 >
 > “Como está? Precisa de mim?”
 >
-> “Peça para testar no navegador e me avise quando terminar.”
->
 > “O que mudou? Mostre os testes e o que ficou pendente.”
 
 As frases são metas de experiência. O nome de invocação e o reconhecimento dependem da configuração e validação real da Alexa.
@@ -27,7 +25,7 @@ As frases são metas de experiência. O nome de invocação e o reconhecimento d
 - Ponte local FastAPI, políticas e estado SQLite; MCP, hooks Claude e supervisor para Claude Code, Codex e Aider.
 - Skill de desenvolvimento com status, aprovações, ditado confirmado, projeto novo, pergunta aberta e listagem/seleção de projetos recentes ou em execução.
 - Túnel nomeado em `ponte.heycode.dev.br`; ponte e túnel iniciam no logon. A confirmação por Echo após a troca de endereço e o teste completo após reinício continuam pendentes.
-- Playwright MCP instalado para o Codex deste usuário. Isso ainda não configura automaticamente todos os outros agentes ou máquinas.
+- Playwright MCP instalado para o Codex deste usuário como ferramenta de desenvolvimento e validação do HeyCode.
 - Limites atuais: contexto de projeto vive na sessão de voz; algumas confirmações ainda usam pendência global; a lista distingue execução supervisionada de atividade recente e pode mudar entre páginas; adaptadores oferecem capacidades diferentes.
 
 ## Princípios de produto
@@ -73,19 +71,7 @@ As frases são metas de experiência. O nome de invocação e o reconhecimento d
 
 **Pronto quando:** a jornada “projeto novo → tarefa → pergunta → contexto → resultado” funciona no Echo, com falhas e ambiguidades tratadas.
 
-## M3 — Playwright para qualquer agente
-
-**Meta:** tornar navegação e testes de navegador uma capacidade comum e reutilizável do HeyCode, independente da escolha do agente.
-
-- Disponibilizar Playwright como capacidade compartilhada, por MCP ou adaptador compatível; fornecer instalação e descoberta para Codex, Claude Code, Aider e outros clientes. Cada integração deve declarar se consegue usar MCP, CLI ou outro mecanismo suportado.
-- Permitir pedidos como “teste o cadastro no navegador”, com evidências acessíveis no projeto: resultado, erros relevantes, capturas e, quando solicitado, rastros de execução.
-- Oferecer sessão isolada por padrão e uma forma explícita de trabalhar com uma sessão autenticada ou entregue pelo usuário. Login, permissões e dados sensíveis seguem as regras do ambiente e exigem intervenção do dono quando necessário.
-- Definir ciclo de vida, concorrência, limpeza, limites de tempo e falha aberta. Sem navegador ou sem adaptador compatível, avisar e orientar a configuração; não afirmar que o teste foi feito.
-- Verificar o fluxo em pelo menos dois agentes com integrações diferentes antes de anunciá-lo como capacidade geral. O objetivo é que **qualquer agente integrado possa usar Playwright**, sujeito às capacidades comprovadas de seu adaptador e às permissões do ambiente.
-
-**Pronto quando:** o mesmo pedido de teste web funciona em agentes diferentes, entrega evidências e informa claramente quando há limitação.
-
-## M4 — Conversa natural e contexto de desenvolvimento
+## M3 — Conversa natural e contexto de desenvolvimento
 
 **Meta:** deixar de depender de frases rígidas sem perder controle sobre o que será executado.
 
@@ -96,18 +82,20 @@ As frases são metas de experiência. O nome de invocação e o reconhecimento d
 
 **Pronto quando:** usuários conseguem cumprir jornadas representativas com linguagem variada e recuperação clara quando a Alexa entende errado.
 
-## M5 — Agentes, comunidade e operação de produto
+## M4 — Agentes, comunidade e operação de produto
 
 **Meta:** outras pessoas conseguirem instalar, adaptar e contribuir com confiança.
 
 - Publicar contrato de adaptadores, catálogo de capacidades e perfis de agentes; validar instalação, atualização e diagnóstico em ambiente limpo.
 - Oferecer guia de início, exemplos de frases, demonstração, roteiro de teste, documentação de segurança e contribuição. Esclarecer custos de domínio, infraestrutura e provedores de agentes.
-- Criar uma interface de acompanhamento para projetos, histórico, políticas, evidências Playwright e resolução de problemas, sem tornar a voz dependente dela para tarefas básicas.
+- Criar uma interface de acompanhamento para projetos, histórico, políticas, resultados de testes e resolução de problemas, sem tornar a voz dependente dela para tarefas básicas.
 - Estudar distribuição da skill e onboarding para a comunidade; antes de publicar, resolver consentimento, isolamento de contas/dispositivos, credenciais e requisitos da plataforma. Multiusuário e múltiplas máquinas exigem especificação própria.
 - Avaliar integrações com repositórios, issues, revisões e entrega de software somente com ações identificadas e autorização adequada.
 
 **Pronto quando:** uma pessoa externa instala em máquina limpa, conecta pelo menos dois agentes, executa um fluxo de voz e consegue diagnosticar uma falha usando a documentação.
 
 ## Como trabalhar neste roadmap
+
+Os agentes que desenvolvem o HeyCode podem usar Playwright para validar o console da Alexa, fluxos web e outras interfaces quando adequado. Essa é uma ferramenta do processo de desenvolvimento; ela não constitui um recurso obrigatório ou eixo do produto.
 
 Cada marco será dividido em especificações aprovadas, planos, código com testes e commits com o trailer exigido pelo repositório. Mudanças de arquitetura recebem ADR novo. O roadmap indica direção e ordem de aprendizado; não substitui essas aprovações nem garante suporte a uma capacidade que ainda não foi verificada.
