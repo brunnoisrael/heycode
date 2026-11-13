@@ -84,10 +84,12 @@ const simple = (intentName, path) => ({
       // amarra a decisão ao pedido que foi lido em voz alta
       const attrs = h.attributesManager.getSessionAttributes() || {};
       if (d.approval_id == null) delete attrs.approval_id; else attrs.approval_id = d.approval_id;
+      attrs.pending_kind = d.kind || 'approval';
+      delete attrs.free_answer;
       h.attributesManager.setSessionAttributes(attrs);
     }
     const rb = h.responseBuilder.speak(d.speech);
-    if (d.actionable) rb.reprompt('Diga aprovar com o seu PIN, ou negar.'); // mantém a sessão aberta
+    if (d.actionable) rb.reprompt(d.kind === 'question' ? 'Diga responder.' : 'Diga aprovar com o seu PIN, ou negar.');
     return rb.getResponse();
   },
 });
@@ -201,9 +203,49 @@ function setSaved(h, key, value) {
   h.attributesManager.setSessionAttributes(attrs);
 }
 
+const AnswerQuestion = {
+  canHandle: h => isIntent(h, 'AnswerQuestionIntent'),
+  async handle(h) {
+    const attrs = h.attributesManager.getSessionAttributes() || {};
+    if (attrs.pending_kind !== 'question' || attrs.approval_id == null)
+      return h.responseBuilder.speak(NEED_PENDING).getResponse();
+    const text = String(Alexa.getSlotValue(h.requestEnvelope, 'resposta') || '').trim();
+    if (!text) return h.responseBuilder.speak('Qual é a resposta?').reprompt('Qual é a resposta?')
+      .addElicitSlotDirective('resposta').getResponse();
+    const d = await bridge('/answer/preview', 'POST', { approval_id: attrs.approval_id, text });
+    if (d.ok) attrs.free_answer = { approval_id: attrs.approval_id, token: d.token };
+    else delete attrs.free_answer;
+    h.attributesManager.setSessionAttributes(attrs);
+    const rb = h.responseBuilder.speak(d.speech);
+    if (d.ok) rb.reprompt('Confirma?');
+    return rb.getResponse();
+  },
+};
+
+const ConfirmAnswer = {
+  canHandle: h => isIntent(h, 'ConfirmIntent') && !!(h.attributesManager.getSessionAttributes() || {}).free_answer,
+  async handle(h) {
+    const attrs = h.attributesManager.getSessionAttributes();
+    const answer = attrs.free_answer;
+    delete attrs.free_answer;
+    h.attributesManager.setSessionAttributes(attrs);
+    const d = await bridge('/answer/confirm', 'POST', answer);
+    return h.responseBuilder.speak(d.speech).getResponse();
+  },
+};
+
+const CancelAnswer = {
+  canHandle: h => isIntent(h, 'CancelDictationIntent') && !!(h.attributesManager.getSessionAttributes() || {}).free_answer,
+  handle(h) {
+    setSaved(h, 'free_answer', null);
+    return h.responseBuilder.speak('Resposta cancelada. A pergunta continua pendente.').getResponse();
+  },
+};
+
 const AskAgent = {
   canHandle: h => isIntent(h, 'AskAgentIntent'),
   async handle(h) {
+    setSaved(h, 'free_answer', null);
     const saved = getSaved(h, 'ask');
     const agent = resolveAgent(h.requestEnvelope) || saved.agent || null;
     const project = resolveProject(h.requestEnvelope) || saved.project || null;
@@ -225,6 +267,7 @@ const AskAgent = {
 const SendInstruction = {
   canHandle: h => isIntent(h, 'SendInstructionIntent'),
   async handle(h) {
+    setSaved(h, 'free_answer', null);
     const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
     if (!text) {
       return h.responseBuilder.speak('Qual é a instrução para o agente aberto?')
@@ -241,6 +284,7 @@ const SendInstruction = {
 const CreateProject = {
   canHandle: h => isIntent(h, 'CreateProjectIntent'),
   async handle(h) {
+    setSaved(h, 'free_answer', null);
     const saved = getSaved(h, 'create');
     const agent = resolveAgent(h.requestEnvelope) || saved.agent || null;
     const name = String(Alexa.getSlotValue(h.requestEnvelope, 'nome') || '').trim() || saved.name || '';
@@ -344,6 +388,6 @@ exports.handler = Alexa.SkillBuilders.custom()
   .addRequestInterceptors(AllowlistInterceptor)
   .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
     simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd,
-    AskAgent, SendInstruction, simplePost('CancelRunIntent', '/runs/latest/cancel'), CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
+    AskAgent, SendInstruction, AnswerQuestion, ConfirmAnswer, CancelAnswer, simplePost('CancelRunIntent', '/runs/latest/cancel'), CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
   .addErrorHandlers(DeniedErrors, Errors)
   .lambda();

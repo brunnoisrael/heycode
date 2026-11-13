@@ -44,6 +44,9 @@ class Store:
             cols = [r["name"] for r in self._db.execute("PRAGMA table_info(runs)")]
             if "reported" not in cols:  # banco criado antes do ADR 0015
                 self._db.execute("ALTER TABLE runs ADD COLUMN reported INTEGER NOT NULL DEFAULT 1")
+            cols = [r["name"] for r in self._db.execute("PRAGMA table_info(approvals)")]
+            if "answer" not in cols:
+                self._db.execute("ALTER TABLE approvals ADD COLUMN answer TEXT")
             self._db.commit()
 
     def close(self) -> None:
@@ -135,8 +138,19 @@ class Store:
             raise ValueError(f"decisao invalida: {decision!r}")
         with self._lock:
             self._db.execute(
-                "UPDATE approvals SET decision=? WHERE id=?", (decision, approval_id))
+                "UPDATE approvals SET decision=? WHERE id=? AND decision IS NULL", (decision, approval_id))
             self._db.commit()
+
+    def answer_question(self, approval_id: int, answer: str, max_age: float) -> bool:
+        """Resolve apenas a primeira pergunta ainda válida, em uma operação atômica."""
+        with self._lock:
+            cur = self._db.execute(
+                "UPDATE approvals SET decision='answered', answer=? WHERE id=? AND tool='pedir_resposta'"
+                " AND decision IS NULL AND t>? AND id=(SELECT id FROM approvals"
+                " WHERE decision IS NULL ORDER BY t, id LIMIT 1)",
+                (answer, approval_id, time.time() - max_age))
+            self._db.commit()
+            return cur.rowcount == 1
 
     def expire_pending(self) -> int:
         with self._lock:

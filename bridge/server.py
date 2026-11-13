@@ -1,5 +1,5 @@
 """Servidor-ponte: recebe eventos dos hooks do Claude Code e responde a skill da Alexa."""
-import asyncio, hmac, importlib.util, json, os, re, sys, threading, time, urllib.request
+import asyncio, hmac, importlib.util, json, os, re, secrets, sys, threading, time, urllib.request
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
 
@@ -432,6 +432,9 @@ def pending():
     waiting = store.pending_approvals()
     if waiting:
         a = waiting[0]
+        if a['tool'] == 'pedir_resposta':
+            return {"actionable": True, "kind": "question", "approval_id": a['id'],
+                    "speech": say(f"O agente do projeto {a['project']} pergunta: {short(a['command'], 160)}. Diga responder.")}
         return {"actionable": True, "approval_id": a["id"],
                 "speech": say(f"O agente do projeto {a['project']} quer rodar: {short(a['command'], 160)}. "
                               "Diga aprovar com o seu PIN, ou negar.")}
@@ -472,6 +475,51 @@ class Decision(BaseModel):
     approval_id: Optional[int] = None
 
 
+class FreeAnswer(BaseModel):
+    approval_id: int
+    text: str
+
+
+class ConfirmFreeAnswer(BaseModel):
+    approval_id: int
+    token: str
+
+
+_answer_lock = threading.Lock()
+_answer_drafts = {}
+
+
+@app.post("/answer/preview", dependencies=[Depends(auth_control)])
+def preview_answer(d: FreeAnswer):
+    text = d.text.strip()
+    if not text or len(text) > 300:
+        return {"ok": False, "speech": "Diga uma resposta de até 300 caracteres."}
+    waiting = store.pending_approvals()
+    if (not waiting or waiting[0]['id'] != d.approval_id or waiting[0]['tool'] != 'pedir_resposta'
+            or time.time() - waiting[0]['t'] >= APPROVAL_WAIT):
+        return {"ok": False, "speech": "Essa pergunta mudou ou expirou. Pergunte novamente."}
+    token = secrets.token_urlsafe(32)
+    with _answer_lock:
+        now = time.time()
+        for key in list(_answer_drafts):
+            if _answer_drafts[key]['deadline'] <= now:
+                del _answer_drafts[key]
+        _answer_drafts[d.approval_id] = {'token': token, 'text': text, 'deadline': waiting[0]['t'] + APPROVAL_WAIT}
+    return {"ok": True, "token": token, "speech": say(f"Entendi: {text}. Confirma?")}
+
+
+@app.post("/answer/confirm", dependencies=[Depends(auth_control)])
+def confirm_answer(d: ConfirmFreeAnswer):
+    with _answer_lock:
+        draft = _answer_drafts.get(d.approval_id)
+        if not draft or not hmac.compare_digest(draft['token'], d.token):
+            return {"ok": False, "speech": "Essa resposta mudou ou expirou. Nada foi enviado."}
+        del _answer_drafts[d.approval_id]
+    if time.time() >= draft['deadline'] or not store.answer_question(d.approval_id, draft['text'], APPROVAL_WAIT):
+        return {"ok": False, "speech": "Essa pergunta mudou ou expirou. Nada foi enviado."}
+    return {"ok": True, "speech": "Resposta enviada ao agente."}
+
+
 @app.post("/decide", dependencies=[Depends(auth_control)])
 def decide(d: Decision):
     lock = store.get_pin_lock()
@@ -486,6 +534,8 @@ def decide(d: Decision):
             return {"speech": "Esse pedido mudou. Pergunte de novo."}
     if not waiting:
         return {"speech": "Não há nada aguardando decisão."}
+    if waiting[0]['tool'] == 'pedir_resposta':
+        return {"speech": "Esta é uma pergunta aberta. Diga responder."}
     if d.approve:
         if not PIN or not hmac.compare_digest(d.pin.encode(), PIN.encode()):
             fails = lock["fails"] + 1

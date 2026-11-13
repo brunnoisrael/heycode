@@ -124,7 +124,7 @@ def test_cliente_mcp_real(client):
     finally:
         srv.should_exit = True
         th.join(5)
-    assert names == {"registrar_status", "pedir_decisao", "reportar_fim", "buscar_instrucao"}
+    assert names == {"registrar_status", "pedir_decisao", "pedir_resposta", "reportar_fim", "buscar_instrucao"}
     assert content == {"instruction": "va"}
     assert client.server.store.newest_session()["project"] == "demo"
 

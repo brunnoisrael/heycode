@@ -34,6 +34,30 @@ function setup(reply = { speech: 'Entendi: x. Confirma?' }) {
   };
 }
 
+test('resposta livre pede texto, relê e confirma somente a pergunta ouvida', async () => {
+  setup({ ok: true, token: 'abc', speech: 'Entendi: SQLite. Confirma?' });
+  const attrs = { pending_kind: 'question', approval_id: 42 };
+  const first = await handler(envelope(intent('AnswerQuestionIntent'), attrs), {});
+  assert.strictEqual(elicited(first).slotToElicit, 'resposta');
+  assert.strictEqual(calls.length, 0);
+  const second = await handler(envelope(intent('AnswerQuestionIntent', { resposta: 'SQLite' }), attrs), {});
+  assert.strictEqual(calls[0].url, 'http://bridge.test/answer/preview');
+  assert.deepStrictEqual(second.sessionAttributes.free_answer, { approval_id: 42, token: 'abc' });
+  await handler(envelope(intent('ConfirmIntent'), second.sessionAttributes), {});
+  assert.strictEqual(calls[1].url, 'http://bridge.test/answer/confirm');
+  assert.deepStrictEqual(JSON.parse(calls[1].opts.body), { approval_id: 42, token: 'abc' });
+});
+
+test('resposta sem pergunta e cancelamento nunca enviam resposta', async () => {
+  setup();
+  await handler(envelope(intent('AnswerQuestionIntent', { resposta: 'x' }), {}), {});
+  assert.strictEqual(calls.length, 0);
+  const r = await handler(envelope(intent('CancelDictationIntent'),
+    { pending_kind: 'question', approval_id: 3, free_answer: { approval_id: 3, text: 'x' } }), {});
+  assert.strictEqual(r.sessionAttributes.free_answer, undefined);
+  assert.strictEqual(calls.length, 0);
+});
+
 test('AskAgentIntent so com agente pede a instrucao com ElicitSlot e guarda o agente na sessao', async () => {
   setup();
   const r = await handler(envelope(intent('AskAgentIntent', { agente: 'codex' })), {});

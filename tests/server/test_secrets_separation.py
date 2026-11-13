@@ -11,6 +11,8 @@ BRIDGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..",
 CONTROL_ROUTES = [
     ("GET", "/mode", None), ("POST", "/mode", {"mode": "auto"}), ("GET", "/status", None),
     ("GET", "/pending", None), ("GET", "/result", None), ("POST", "/decide", {"approve": False}),
+    ("POST", "/answer/preview", {"approval_id": 1, "text": "x"}),
+    ("POST", "/answer/confirm", {"approval_id": 1, "token": "x"}),
     ("POST", "/instruction", {"text": "x"}), ("POST", "/runs", {"agent": "claude", "prompt": "x", "cwd": "."}),
     ("GET", "/runs/latest", None), ("GET", "/runs/1", None), ("POST", "/runs/1/cancel", None),
     ("POST", "/projects", {"name": "a", "agent": "claude", "description": "x"}),

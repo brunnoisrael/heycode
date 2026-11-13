@@ -190,6 +190,23 @@
             "esquece",
             "cancela isso"
           ]
+        },
+        {
+          "name": "AnswerQuestionIntent",
+          "slots": [
+            {
+              "name": "resposta",
+              "type": "AMAZON.SearchQuery",
+              "samples": [
+                "{resposta}",
+                "a resposta é {resposta}"
+              ]
+            }
+          ],
+          "samples": [
+            "responder",
+            "quero responder"
+          ]
         }
       ],
       "types": [
@@ -351,6 +368,23 @@
               }
             }
           ]
+        },
+        {
+          "name": "AnswerQuestionIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "resposta",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.AnswerQuestion.resposta"
+              }
+            }
+          ]
         }
       ],
       "delegationStrategy": "SKILL_RESPONSE"
@@ -371,6 +405,15 @@
           {
             "type": "PlainText",
             "value": "Para que serve o projeto?"
+          }
+        ]
+      },
+      {
+        "id": "Elicit.Slot.AnswerQuestion.resposta",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "Qual é a resposta?"
           }
         ]
       }

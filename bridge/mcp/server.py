@@ -50,6 +50,19 @@ def make_tools(store, approval_wait, has_pin=lambda: True, instruction_ttl=lambd
         store.upsert_session(f"mcp:{agent}:{project}", agent, project, "concluido", "", summary)
         return {"ok": True}
 
+    async def pedir_resposta(question: str, agent: str = "agent", project: str = "projeto") -> dict:
+        """Pergunta ao dono e retorna a resposta livre confirmada, ou null se expirar."""
+        aid = store.add_approval(agent, project, "pedir_resposta", question, f"mcp:{agent}:{project}")
+        deadline = time.time() + approval_wait()
+        while time.time() < deadline:
+            row = store.get_approval(aid)
+            if row["decision"] is not None:
+                return {"answer": row["answer"] if row["decision"] == "answered" else None}
+            await asyncio.sleep(0.1)
+        store.resolve_approval(aid, "expired")
+        row = store.get_approval(aid)
+        return {"answer": row["answer"] if row["decision"] == "answered" else None}
+
     async def buscar_instrucao(agent: str = "agent", project: str = "projeto") -> dict:
         """Busca a proxima instrucao enviada pelo dono por voz (cada uma e entregue uma unica vez).
         A fila casa agente e projeto por igualdade: passe os mesmos `agent` (claude, codex ou aider) e
@@ -58,7 +71,7 @@ def make_tools(store, approval_wait, has_pin=lambda: True, instruction_ttl=lambd
         item = store.pop_instruction(agent, project, instruction_ttl())
         return {"instruction": item["text"] if item else None}
 
-    return SimpleNamespace(registrar_status=registrar_status, pedir_decisao=pedir_decisao,
+    return SimpleNamespace(registrar_status=registrar_status, pedir_decisao=pedir_decisao, pedir_resposta=pedir_resposta,
                            reportar_fim=reportar_fim, buscar_instrucao=buscar_instrucao)
 
 
@@ -67,7 +80,7 @@ def build_mcp(tools) -> FastMCP:
     mcp = FastMCP(
         "roomcode", streamable_http_path="/mcp", stateless_http=True, json_response=True,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False))
-    for fn in (tools.registrar_status, tools.pedir_decisao, tools.reportar_fim, tools.buscar_instrucao):
+    for fn in (tools.registrar_status, tools.pedir_decisao, tools.pedir_resposta, tools.reportar_fim, tools.buscar_instrucao):
         mcp.tool()(fn)
     return mcp
 

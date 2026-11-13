@@ -22,6 +22,7 @@ Alexa ──skill──▶ túnel HTTPS ──▶ Ponte RoomCode (FastAPI + SQLi
 | "Avise o agente aberto: rode os testes" | Entra na fila do Claude Code aberto, com a mesma releitura e confirmação |
 | "Peça ao Codex no projeto painel para rodar os testes" | Ditado no projeto citado; projeto inexistente é recusado, nunca cai na raiz |
 | "Aviso no fim do ciclo" | Quando o agente termina, ela oferece ler a saída e receber a próxima instrução |
+| "O que está pendente?" / "responder" | Responde a uma pergunta aberta feita pelo agente via MCP, após releitura e confirmação |
 
 ## Modos de política
 
@@ -74,6 +75,5 @@ Regras para agentes em [AGENTS.md](AGENTS.md). Decisões em [docs/adr/](docs/adr
 
 ## Ideias de evolução
 
-- Ditado de respostas livres para `pedir_decisao` (hoje é sim/não).
 - Multi-máquina e multiusuário.
 - Publicar a skill na loja da Alexa (hoje só modo desenvolvimento, na sua conta).
