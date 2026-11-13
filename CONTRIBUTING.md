@@ -14,7 +14,7 @@ Todo o código deste projeto é produzido por agentes, e pessoas também podem c
 ## Ambiente
 
 ```bash
-python -m pip install -r requirements-dev.txt -r bridge/requirements.txt
+python -m pip install -r requirements-dev.txt -e . -c constraints.txt
 git config core.hooksPath .githooks   # uma vez por clone
 python -m pytest
 ```

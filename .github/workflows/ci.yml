@@ -126,3 +126,56 @@ jobs:
         env:
           BODY: ${{ github.event.pull_request.body }}
         run: python scripts/gates/evidence.py
+
+  instalacao-limpa:
+    # Meta da P1: roda recem-construida, em ambiente virtual novo, sem editar nada a mao, em ate 5 minutos
+    if: github.event_name != 'pull_request_review'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Construir a roda
+        run: |
+          echo "START=$(date +%s)" >> "$GITHUB_ENV"
+          python -m pip install build==1.6.1
+          python -m build --wheel
+      - name: Instalar so a roda em ambiente virtual novo e conferir
+        run: |
+          python -m venv "$RUNNER_TEMP/venv"
+          if [ -d "$RUNNER_TEMP/venv/Scripts" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
+          "$BIN/python" -m pip install -c constraints.txt dist/*.whl
+          export HEYCODE_HOME="$RUNNER_TEMP/heycode-home"
+          "$BIN/heycode" --version
+          "$BIN/python" -c "from heycode.templates import template_root; print(template_root())"
+          "$BIN/heycode" init
+          PORT=18765
+          "$BIN/heycode" serve --port "$PORT" > "$RUNNER_TEMP/serve.log" 2>&1 &
+          for i in $(seq 1 60); do curl -fs "http://127.0.0.1:$PORT/health" && break; sleep 1; done
+          BRIDGE_URL="http://127.0.0.1:$PORT" "$BIN/heycode" doctor --json > "$RUNNER_TEMP/doctor.json" || true
+          cat "$RUNNER_TEMP/doctor.json"
+          DOCTOR_JSON="$RUNNER_TEMP/doctor.json" "$BIN/python" - <<'PY'
+          import json, os, sys
+
+          checks = {c["name"]: c for c in json.load(open(os.environ["DOCTOR_JSON"], encoding="utf-8"))}
+          required = ["python", "diretorio", "segredos", "ponte", "autenticação"]
+          bad = {n: checks[n]["detail"] for n in required if checks[n]["status"] != "ok"}
+          sys.exit(f"doctor com problema nas camadas obrigatorias: {bad}" if bad else 0)
+          PY
+          ELAPSED=$(( $(date +%s) - START ))
+          echo "instalacao limpa em ${ELAPSED}s"
+          [ "$ELAPSED" -lt 300 ]
+      - name: Log da ponte (diagnostico)
+        if: failure()
+        run: cat "$RUNNER_TEMP/serve.log" || true
