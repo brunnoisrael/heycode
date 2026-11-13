@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/envelope",
+  "type": "object",
+  "required": [
+    "v",
+    "id",
+    "ts",
+    "installation_id",
+    "type",
+    "payload",
+    "sig"
+  ],
+  "properties": {
+    "v": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "ts": {
+      "type": "number"
+    },
+    "installation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "enum": [
+        "status",
+        "decision-request",
+        "decision-response",
+        "instruction",
+        "run-result",
+        "pair-request",
+        "pair-confirm",
+        "error"
+      ]
+    },
+    "payload": {
+      "type": "object"
+    },
+    "sig": {
+      "type": "string"
+    }
+  }
+}

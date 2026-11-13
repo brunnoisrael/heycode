@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/instruction",
+  "type": "object",
+  "required": [
+    "text",
+    "destination"
+  ],
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1
+    },
+    "destination": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent": {
+      "type": "string"
+    }
+  }
+}

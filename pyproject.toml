@@ -14,6 +14,8 @@ dependencies = [
   "uvicorn>=0.42,<1",
   "httpx>=0.28,<1",
   "mcp>=1.30,<2",
+  "jsonschema>=4.26,<5",
+  "cryptography>=46,<47",
 ]
 
 [project.scripts]
@@ -23,5 +25,6 @@ heycode = "heycode.cli:main"
 packages = ["src/heycode"]
 
 [tool.hatch.build.targets.wheel.force-include]
+"protocol/v1" = "heycode/_protocol/v1"
 "scripts/gates" = "heycode/_template/scripts/gates"
 ".githooks" = "heycode/_template/.githooks"

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/status",
+  "type": "object",
+  "required": [
+    "state"
+  ],
+  "properties": {
+    "state": {
+      "enum": [
+        "idle",
+        "running",
+        "waiting",
+        "done",
+        "failed",
+        "cancelled",
+        "interrupted"
+      ]
+    },
+    "project": {
+      "type": "string"
+    },
+    "agent": {
+      "type": "string"
+    },
+    "last_signal_ts": {
+      "type": "number"
+    }
+  }
+}
