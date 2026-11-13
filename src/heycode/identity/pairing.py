@@ -61,6 +61,13 @@ class PairingService:
         self._pending[pending.id] = pending
         return pending
 
+    def get_pending(self, pending_id: str) -> Pending | None:
+        pending = self._pending.get(pending_id)
+        if pending is not None and pending.expires_at < self._clock():
+            del self._pending[pending_id]
+            return None
+        return pending
+
     def confirm(self, pending_id: str, side: str, account_id: str | None = None) -> Binding | None:
         pending = self._pending.get(pending_id)
         if pending is None:
