@@ -1,6 +1,6 @@
 # HeyCode relay MVP: contas, pareamento, roteamento e operação
 
-Data: 2026-11-13. Status: Rascunho (aguarda aprovação do dono; sem aprovação, nenhuma tarefa de código da P3 começa).
+Data: 2026-11-13. Status: Aprovada pelo dono em 2026-11-13 ("Aprovar e executar", com as quatro decisões do §8; registrado pelo agente a pedido expresso). A aprovação cobre código e testes; contratar plataforma, DNS, e-mail do domínio e orçamento continuam ações do dono (§9).
 
 Visão: `docs/ROADMAP-HEYCODE.md`. Programa: `docs/superpowers/plans/2026-11-13-heycode-publicavel-e-esteira-de-agentes.md` (trilha P3). Contratos: `docs/superpowers/specs/2026-11-13-heycode-contratos-e-seguranca-multiusuario.md` e ADRs 0029 a 0034. Modelo de ameaça: `docs/security/threat-model.md`.
 
