@@ -3,6 +3,15 @@
 Guia para o dono publicar a skill em modo desenvolvimento (so a sua conta) e ligar tudo a ponte local.
 Nada aqui e feito automaticamente: exige o seu login na Amazon.
 
+## Instalacao HeyCode nesta maquina (2026-11-13)
+
+- Dominio: `heycode.dev.br`, com DNS delegado ao Cloudflare. O endpoint de controle da ponte e `https://ponte.heycode.dev.br`.
+- Tunel nomeado `roomcode`, configurado localmente em `%USERPROFILE%\.cloudflared\config.yml`; os arquivos dessa pasta incluem credenciais e nao devem ser compartilhados ou versionados.
+- As tarefas `RoomCodeBridge` e `RoomCodeTunnel` iniciam no logon do usuario Windows, com reinicio em caso de falha. Isso nao garante disponibilidade antes do logon nem com o PC desligado.
+- A Lambda da skill em desenvolvimento recebeu o endpoint fixo. Para inspecionar a infraestrutura sem exibir credenciais: `powershell -ExecutionPolicy Bypass -File scripts/diagnose-connection.ps1 -Hostname ponte.heycode.dev.br`.
+- Verificado em 2026-11-13: ponte local, conexao externa `/health`, recusa sem segredo e chamada autenticada pelo endereco fixo. O modelo com listagem de projetos foi construido, a Lambda implantada em desenvolvimento e um pedido de listagem enviado pelo simulador com os IDs autorizados retornou fala sem erro. Falta confirmar o fluxo pelo Echo depois desta troca de endereco e apos reiniciar o computador.
+- O tunel rapido anterior pode permanecer aberto durante a transicao, mas nao e necessario depois de validar o endereco fixo. Nao altere o DNS ou as credenciais em caso de falha sem antes executar o diagnostico.
+
 ## 1. Subir a ponte e o tunel (no PC)
 
 Em dois terminais PowerShell, na raiz do repositorio:
