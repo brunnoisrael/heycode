@@ -3,6 +3,7 @@
 Toda consulta de instalacao filtra por conta: nenhum metodo devolve dado de outra conta.
 """
 
+import json
 import sqlite3
 import threading
 import uuid
@@ -25,6 +26,11 @@ CREATE TABLE IF NOT EXISTS devices (
   account_id TEXT NOT NULL, installation_id TEXT NOT NULL, device_id TEXT NOT NULL,
   status TEXT NOT NULL, created REAL NOT NULL, PRIMARY KEY (account_id, installation_id, device_id));
 CREATE TABLE IF NOT EXISTS account_settings (account_id TEXT PRIMARY KEY, default_installation TEXT);
+CREATE TABLE IF NOT EXISTS shortcuts (
+  id TEXT PRIMARY KEY, account_id TEXT NOT NULL, name TEXT NOT NULL, aliases TEXT NOT NULL,
+  agent TEXT NOT NULL, project TEXT, instruction TEXT NOT NULL, description TEXT,
+  enabled INTEGER NOT NULL DEFAULT 1, created REAL NOT NULL);
+CREATE INDEX IF NOT EXISTS shortcuts_account ON shortcuts (account_id);
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, t REAL NOT NULL, kind TEXT NOT NULL,
   installation_id TEXT, device_id TEXT, result TEXT NOT NULL, label TEXT);
@@ -271,6 +277,7 @@ class SqliteRepository:
         with self._lock, self._db:
             ids = [r[0] for r in self._db.execute("SELECT id FROM installations WHERE account_id=?", (account_id,))]
             for table in (
+                "shortcuts",
                 "audit",
                 "sessions",
                 "installations",
@@ -331,3 +338,75 @@ class SqliteRepository:
     def count_audit(self) -> int:
         with self._lock:
             return self._db.execute("SELECT COUNT(*) FROM audit").fetchone()[0]
+
+    # atalhos para agentes (ADR 0048, fase A)
+    @staticmethod
+    def _shortcut(row) -> dict:
+        d = dict(row)
+        d["aliases"] = json.loads(d["aliases"])
+        d["enabled"] = bool(d["enabled"])
+        d.pop("account_id", None)
+        return d
+
+    def list_shortcuts(self, account_id: str) -> list[dict]:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT * FROM shortcuts WHERE account_id=? ORDER BY created, id", (account_id,)
+            ).fetchall()
+        return [self._shortcut(r) for r in rows]
+
+    def count_shortcuts(self, account_id: str | None = None) -> int:
+        with self._lock:
+            if account_id is None:
+                return self._db.execute("SELECT COUNT(*) FROM shortcuts").fetchone()[0]
+            return self._db.execute("SELECT COUNT(*) FROM shortcuts WHERE account_id=?", (account_id,)).fetchone()[0]
+
+    def create_shortcut(self, account_id: str, fields: dict, now: float) -> dict:
+        sid = str(uuid.uuid4())
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO shortcuts (id, account_id, name, aliases, agent, project, instruction, description,"
+                " enabled, created) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (
+                    sid,
+                    account_id,
+                    fields["name"],
+                    json.dumps(fields["aliases"]),
+                    fields["agent"],
+                    fields["project"],
+                    fields["instruction"],
+                    fields["description"],
+                    int(fields["enabled"]),
+                    now,
+                ),
+            )
+        return next(s for s in self.list_shortcuts(account_id) if s["id"] == sid)
+
+    def update_shortcut(self, account_id: str, shortcut_id: str, fields: dict) -> dict | None:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "UPDATE shortcuts SET name=?, aliases=?, agent=?, project=?, instruction=?, description=?, enabled=?"
+                " WHERE id=? AND account_id=?",
+                (
+                    fields["name"],
+                    json.dumps(fields["aliases"]),
+                    fields["agent"],
+                    fields["project"],
+                    fields["instruction"],
+                    fields["description"],
+                    int(fields["enabled"]),
+                    shortcut_id,
+                    account_id,
+                ),
+            )
+        if cur.rowcount != 1:
+            return None
+        return next(s for s in self.list_shortcuts(account_id) if s["id"] == shortcut_id)
+
+    def delete_shortcut(self, account_id: str, shortcut_id: str) -> dict | None:
+        found = next((s for s in self.list_shortcuts(account_id) if s["id"] == shortcut_id), None)
+        if found is None:
+            return None
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM shortcuts WHERE id=? AND account_id=?", (shortcut_id, account_id))
+        return found

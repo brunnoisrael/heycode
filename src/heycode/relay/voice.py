@@ -9,6 +9,8 @@ import unicodedata
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 
+from heycode.relay.shortcuts import match
+
 FAIL_SPEECH = "Não consegui falar com o seu computador. Verifique se o heycode connect está rodando."
 FALLBACK_SPEECH = "Não entendi. Tente: qual o status?"
 NEED_PENDING = "Pergunte primeiro o que está pendente."
@@ -47,7 +49,9 @@ def _norm(value: object) -> str:
 
 
 class _Req:
-    def __init__(self, data: dict) -> None:
+    def __init__(self, data: dict, shortcuts: list[dict] | None = None, meta: dict | None = None) -> None:
+        self.shortcuts = shortcuts or []
+        self.meta = meta if meta is not None else {}
         req = data.get("request") or {}
         self.type = req.get("type")
         intent = req.get("intent") or {}
@@ -315,6 +319,24 @@ async def _create_project(r: _Req, call: Call) -> Reply:
     return Reply(_say(d))
 
 
+async def _run_command(r: _Req, call: Call) -> Reply:
+    """Atalho cadastrado no painel: vira o mesmo ditado do pedido por voz, que pede "Confirma?" (ADR 0048)."""
+    r.attrs.pop("free_answer", None)
+    if not r.shortcuts:
+        return Reply("Você ainda não cadastrou comandos. Crie um no painel do HeyCode.")
+    spoken = r.slot("comando")
+    if not spoken:
+        return Reply("Qual comando você quer executar?", "Qual comando?", elicit="comando")
+    found, why = match(spoken, r.shortcuts)
+    if found is None:
+        if why == "ambiguous":
+            return Reply("Mais de um comando parece esse. Diga o nome completo.", "Qual comando?")
+        return Reply("Não achei esse comando. Diga executar e o nome de um comando cadastrado.", "Qual comando?")
+    r.meta["label"] = found["name"]
+    project = found.get("project") or r.attrs.get("selected_project")
+    return await _dictate(r, call, found["agent"], found["instruction"], project)
+
+
 def _simple_post(path: str) -> Callable[[_Req, Call], Awaitable[Reply]]:
     async def run(r: _Req, call: Call) -> Reply:
         return Reply(_say(await call("POST", path)))
@@ -353,6 +375,7 @@ _BY_INTENT: dict[str, Callable[[_Req, Call], Awaitable[Reply]]] = {
     "SetModeIntent": _set_mode,
     "ReportOnEndIntent": _report_on_end,
     "AskAgentIntent": _ask_agent,
+    "RunCommandIntent": _run_command,
     "SendInstructionIntent": _send_instruction,
     "AnswerQuestionIntent": _answer_question,
     "CancelRunIntent": _simple_post("/runs/latest/cancel"),
@@ -380,9 +403,11 @@ def _pick(r: _Req) -> Callable[[_Req, Call], Awaitable[Reply]]:
     return _BY_INTENT.get(r.name or "", _fallback)
 
 
-async def handle(data: dict, call: Call) -> dict:
-    """Resposta da Alexa para a requisicao ja verificada. Nunca levanta: falha da ponte vira FAIL_SPEECH."""
-    r = _Req(data)
+async def handle(data: dict, call: Call, *, shortcuts: list[dict] | None = None, meta: dict | None = None) -> dict:
+    """Resposta da Alexa para a requisicao ja verificada. Nunca levanta: falha da ponte vira FAIL_SPEECH.
+
+    `shortcuts`: atalhos da conta; `meta`: recebe {"label": nome} do atalho usado (para o rastro)."""
+    r = _Req(data, shortcuts, meta)
     if r.type == "SessionEndedRequest":
         return {"version": "1.0", "response": {}}
     try:

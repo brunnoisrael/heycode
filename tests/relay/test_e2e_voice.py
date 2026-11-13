@@ -38,6 +38,8 @@ class FakeBridge:
         path = request.url.path
         if path == "/status":
             return httpx.Response(200, json={"speech": "Nenhum agente em execução."})
+        if path == "/dictation":
+            return httpx.Response(200, json={"speech": "Vou pedir ao codex. Confirma?", "ok": True})
         if path == "/voice/audit":
             return httpx.Response(
                 200,
@@ -296,5 +298,44 @@ def test_rastro_registra_o_resultado_e_o_detalhe_vem_do_computador(world):
         detalhe = httpx.get(base + "/v1/audit/detail", params={"installation_id": m.id}, headers=auth)
         assert detalhe.status_code == 200 and detalhe.json()["approvals"][0]["decision"] == "allow"
         assert bridge.received[-1][:2] == ("GET", "/voice/audit?limit=20")
+    finally:
+        m.stop()
+
+
+def test_atalho_cadastrado_no_painel_vira_ditado_com_confirmacao_na_ponte(world):
+    base, env, tok, bridge, m = ready(world)
+    try:
+        auth = {
+            "Authorization": "Bearer "
+            + httpx.post(base + "/v1/login", json={"email": "a@exemplo.com", "password": "senha-bem-longa"}).json()[
+                "token"
+            ]
+        }
+        r = httpx.post(
+            base + "/v1/commands",
+            headers=auth,
+            json={
+                "name": "rodar testes",
+                "aliases": [],
+                "agent": "codex",
+                "project": "api",
+                "instruction": "rode a suite de testes e resuma as falhas",
+            },
+        )
+        assert r.status_code == 201
+        out = say(base, env, tok, "RunCommandIntent", {"comando": "rodar os testes"})
+        assert speech(out) == "Vou pedir ao codex. Confirma?"
+        assert out["response"]["reprompt"]["outputSpeech"]["text"] == "Confirma?"
+        assert bridge.received[-1][:3] == (
+            "POST",
+            "/dictation",
+            {"agent": "codex", "text": "rode a suite de testes e resuma as falhas", "project": "api"},
+        )
+        assert all(c[1] != "/confirm" for c in bridge.received)  # nada foi confirmado nem executado sozinho
+        linhas = httpx.get(base + "/v1/audit", headers=auth, params={"limit": 3}).json()
+        assert (linhas[0]["kind"], linhas[0]["label"]) == ("RunCommandIntent", "rodar testes")
+        assert "suite de testes" not in str(linhas)
+        out = say(base, env, tok, "RunCommandIntent", {"comando": "cafe"})
+        assert "Não achei" in speech(out)
     finally:
         m.stop()

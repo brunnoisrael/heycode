@@ -8,11 +8,12 @@ import hmac
 import html
 import secrets
 from collections.abc import Callable
+from typing import Annotated
 from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from starlette.websockets import WebSocketDisconnect
 
 from heycode.identity import IdentityError
@@ -26,6 +27,7 @@ from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
 from heycode.relay.limits import RateLimiter, day_key
 from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
+from heycode.relay.shortcuts import normalize
 from heycode.relay.voice import BridgeUnavailable
 from heycode.relay.voice import handle as handle_voice
 
@@ -36,6 +38,8 @@ DAILY_QUOTA = 200
 SESSION_COOKIE = "hc_session"
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_PENDING_DEVICES = 10
+MAX_SHORTCUTS = 30
+SHORTCUT_AGENTS = ("claude", "codex", "aider")
 SYNC_TIMEOUT = 4.0
 CLOSE_UNAUTHORIZED = 4401
 
@@ -66,6 +70,36 @@ class DefaultInstallationBody(BaseModel):
 
 class DeleteAccountBody(BaseModel):
     password: str
+
+
+class ShortcutBody(BaseModel):
+    name: str = Field(min_length=2, max_length=40)
+    aliases: list[Annotated[str, Field(min_length=2, max_length=40)]] = Field(default_factory=list, max_length=5)
+    agent: str
+    project: str | None = Field(default=None, max_length=80)
+    instruction: str = Field(min_length=1, max_length=500)
+    description: str | None = Field(default=None, max_length=200)
+    enabled: bool = True
+
+    @field_validator("agent")
+    @classmethod
+    def _agent(cls, v: str) -> str:
+        if v not in SHORTCUT_AGENTS:
+            raise ValueError("agente desconhecido")
+        return v
+
+    @field_validator("name", "instruction")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        return v.strip()
+
+    @model_validator(mode="after")
+    def _speakable(self):
+        if len(normalize(self.name)) < 2 or any(len(normalize(a)) < 2 for a in self.aliases):
+            raise ValueError("nome ou apelido sem letras suficientes")
+        if not self.instruction:
+            raise ValueError("instrucao vazia")
+        return self
 
 
 class SkillRequest(BaseModel):
@@ -364,6 +398,50 @@ def create_app(
             raise HTTPException(502, "computador nao respondeu")
         return result["body"]
 
+    # --- atalhos para agentes (ADR 0048, fase A) ---
+
+    def _taken(account_id: str, body: ShortcutBody, ignore_id: str | None = None) -> bool:
+        """Nome ou apelido ja usado por outro atalho da conta (comparando como a Alexa vai ouvir)."""
+        mine = {normalize(body.name), *(normalize(a) for a in body.aliases)}
+        for other in repo.list_shortcuts(account_id):
+            if other["id"] == ignore_id:
+                continue
+            if mine & {normalize(other["name"]), *(normalize(a) for a in other["aliases"])}:
+                return True
+        return False
+
+    @app.get("/v1/commands")
+    def list_commands(account_id: str = Depends(current_account)) -> list[dict]:
+        return repo.list_shortcuts(account_id)
+
+    @app.post("/v1/commands", status_code=201)
+    def create_command(body: ShortcutBody, account_id: str = Depends(current_account)) -> dict:
+        if repo.count_shortcuts(account_id) >= MAX_SHORTCUTS:
+            raise HTTPException(409, "quota_commands")
+        if _taken(account_id, body):
+            raise HTTPException(409, "name_taken")
+        item = repo.create_shortcut(account_id, body.model_dump(), clock())
+        audit(account_id, "painel:criar_atalho", label=item["name"])
+        return item
+
+    @app.put("/v1/commands/{shortcut_id}")
+    def update_command(shortcut_id: str, body: ShortcutBody, account_id: str = Depends(current_account)) -> dict:
+        if _taken(account_id, body, ignore_id=shortcut_id):
+            raise HTTPException(409, "name_taken")
+        item = repo.update_shortcut(account_id, shortcut_id, body.model_dump())
+        if item is None:
+            raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:editar_atalho", label=item["name"])
+        return item
+
+    @app.delete("/v1/commands/{shortcut_id}", status_code=204)
+    def delete_command(shortcut_id: str, account_id: str = Depends(current_account)) -> Response:
+        gone = repo.delete_shortcut(account_id, shortcut_id)
+        if gone is None:
+            raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:apagar_atalho", label=gone["name"])
+        return Response(status_code=204)
+
     @app.get("/v1/devices")
     def list_devices(account_id: str = Depends(current_account)) -> list[dict]:
         return repo.list_devices(account_id)
@@ -496,13 +574,16 @@ def create_app(
                 raise BridgeUnavailable(f"ponte respondeu {status}")
             return result["body"]
 
-        answer = await handle_voice(data, call)
+        meta: dict = {}
+        shortcuts = repo.list_shortcuts(account_id) if kind == "RunCommandIntent" else None
+        answer = await handle_voice(data, call, shortcuts=shortcuts, meta=meta)
         audit(
             account_id,
             kind,
             outcome["result"] if outcome["called"] else "sem_acao",
             installation_id=inst["id"],
             device_id=device_id,
+            label=meta.get("label"),
         )
         if req.get("type") == "LaunchRequest":
             spoken = answer["response"]["outputSpeech"]["text"]
