@@ -8,12 +8,20 @@ import hashlib
 import json
 import os
 import re
-from collections.abc import Mapping
+import shutil
+import subprocess
+import threading
+import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
+
+from heycode.policy.redact import mask_secrets
 from heycode.relay.shortcuts import match, normalize
+from heycode.supervisor.manager import Supervisor
 
 VERSION = 1
 MAX_COMMANDS = 50
@@ -246,3 +254,232 @@ def match_command(spoken: str, commands: list[Command]) -> tuple[Command | None,
     by_name = {c.name: c for c in commands}
     found, why = match(spoken, [c.as_match_dict() for c in commands])
     return (by_name[found["name"]], why) if found else (None, why)
+
+
+# ---------------------------------------------------------------- execucao
+
+PENDING_TTL = 120.0
+MIN_INTERVAL = 3.0
+OUTPUT_CAP = 4096
+SPEECH_CAP = 200
+_MIN_ENV = ("PATH", "HOME", "USERPROFILE", "SYSTEMROOT", "LANG", "TEMP", "TMP", "TMPDIR")
+
+
+def _short(text: str, cap: int = SPEECH_CAP) -> str:
+    return re.sub(r"\s+", " ", mask_secrets(text)).strip()[:cap]
+
+
+class CommandRunner:
+    """Casa a fala, aplica o nivel de risco e executa. Sync: a ponte chama de uma thread do servidor."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        secrets: Callable[[], Mapping[str, str]],
+        clock: Callable[[], float] = time.time,
+        on_event: Callable[[dict], None] | None = None,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._path = Path(path)
+        self._secrets = secrets
+        self._clock = clock
+        self._on_event = on_event
+        self._transport = transport
+        self._lock = threading.Lock()  # uma execucao por vez
+        self._pending: dict | None = None
+        self._last_run: dict[str, float] = {}
+
+    # --- registro ---
+    def _commands(self) -> list[Command]:
+        return load(self._path, self._secrets())
+
+    def list(self) -> list[dict]:
+        return [summary(c) for c in self._commands()]
+
+    def disable(self, name: str) -> dict:
+        """Unico efeito remoto sobre o registro: desligar (ligar e do CLI local)."""
+        try:
+            data = json.loads(self._path.read_text(encoding="utf-8"))
+            self._commands()  # nao mexe num registro que ja esta invalido
+        except (OSError, ValueError, CommandError):
+            return {"ok": False, "speech": "Não consegui ler o registro de comandos."}
+        for raw in data.get("commands", []):
+            if normalize(raw.get("name")) == normalize(name):
+                raw["enabled"] = False
+                save(self._path, data["commands"], self._secrets())
+                if self._pending and normalize(self._pending["name"]) == normalize(name):
+                    self._pending = None
+                return {"ok": True, "speech": f"Comando {raw['name']} desligado."}
+        return {"ok": False, "speech": "Não achei esse comando."}
+
+    # --- fluxo por voz ---
+    def start(self, spoken: str) -> dict:
+        self._pending = None  # qualquer pedido novo cancela a pendencia anterior
+        try:
+            commands = self._commands()
+        except CommandError:
+            return {
+                "ok": False,
+                "speech": "O registro de comandos tem um erro. Rode heycode command list no computador.",
+            }
+        if not commands:
+            return {"ok": False, "speech": "Nenhum comando local cadastrado. Cadastre um com heycode command add."}
+        cmd, why = match_command(spoken, commands)
+        if cmd is None:
+            speech = (
+                "Mais de um comando parece esse. Diga o nome completo."
+                if why == "ambiguous"
+                else "Não achei esse comando. Diga executar e o nome de um comando cadastrado."
+            )
+            return {"ok": False, "speech": speech}
+        if cmd.risk == "leitura":
+            return {**self._execute(cmd), "label": cmd.name}
+        self._pending = {
+            "name": cmd.name,
+            "risk": cmd.risk,
+            "hash": definition_hash(cmd),
+            "expires": self._clock() + PENDING_TTL,
+        }
+        what = f" {cmd.description}" if cmd.description else ""
+        ask = "Confirma?" if cmd.risk == "confirmar" else "Esse comando exige o seu PIN. Diga aprovar e o PIN."
+        return {
+            "ok": True,
+            "label": cmd.name,
+            "pending": {"risk": cmd.risk},
+            "speech": f"Vou executar {cmd.name}.{what} {ask}",
+        }
+
+    def confirm(self, pin_ok: bool | None = None) -> dict:
+        pending = self._pending
+        if pending is None or self._clock() > pending["expires"]:
+            self._pending = None
+            return {"ok": False, "done": False, "speech": "Não há comando aguardando confirmação."}
+        try:
+            current = {c.name: c for c in self._commands() if c.enabled}.get(pending["name"])
+        except CommandError:
+            current = None
+        if current is None or definition_hash(current) != pending["hash"]:
+            self._pending = None
+            return {"ok": False, "done": False, "speech": "O comando mudou ou foi desligado. Peça de novo."}
+        if pending["risk"] == "pin" and pin_ok is not True:
+            return {"ok": False, "done": False, "speech": "Esse comando exige o seu PIN. Diga aprovar e o PIN."}
+        self._pending = None
+        return {**self._execute(current), "done": True, "label": current.name}
+
+    def cancel(self) -> dict:
+        had = self._pending is not None
+        self._pending = None
+        return {"ok": True, "speech": "Cancelado." if had else "Não havia nada para cancelar."}
+
+    # --- execucao ---
+    def _execute(self, cmd: Command) -> dict:
+        if not self._lock.acquire(blocking=False):
+            return {"ok": False, "speech": "Já há um comando em execução. Aguarde terminar."}
+        try:
+            now = self._clock()
+            if now - self._last_run.get(cmd.name, -1e9) < MIN_INTERVAL:
+                return {"ok": False, "speech": f"{cmd.name} acabou de rodar. Aguarde um instante."}
+            self._last_run[cmd.name] = now
+            started = time.monotonic()
+            result = self._run_script(cmd) if cmd.type == "script" else self._run_webhook(cmd)
+            self._emit(
+                {
+                    "name": cmd.name,
+                    "risk": cmd.risk,
+                    "type": cmd.type,
+                    "outcome": result["outcome"],
+                    "exit_code": result.get("exit_code"),
+                    "duration": round(time.monotonic() - started, 2),
+                    "t": now,
+                }
+            )
+            return {"ok": result["outcome"] == "ok", "speech": result["speech"]}
+        finally:
+            self._lock.release()
+
+    def _emit(self, event: dict) -> None:
+        if self._on_event is None:
+            return
+        try:
+            self._on_event(event)
+        except Exception:  # noqa: BLE001 - o historico nunca derruba a execucao
+            pass
+
+    def _run_script(self, cmd: Command) -> dict:
+        env = {k: os.environ[k] for k in _MIN_ENV if k in os.environ}
+        env.update({k: os.environ[k] for k in cmd.env_pass if k in os.environ})
+        argv = list(cmd.argv)
+        argv[0] = shutil.which(argv[0]) or argv[0]
+        kwargs: dict = {}
+        if os.name == "nt":
+            kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kwargs["start_new_session"] = True
+        try:
+            proc = subprocess.Popen(  # noqa: S603 - argv fixo do registro, sem shell
+                argv,
+                cwd=cmd.cwd,
+                env=env,
+                shell=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                **kwargs,
+            )
+        except OSError:
+            return {"outcome": "erro", "speech": f"Não encontrei o programa de {cmd.name}."}
+        try:
+            output, _ = proc.communicate(timeout=cmd.timeout)
+        except subprocess.TimeoutExpired:
+            Supervisor._kill_tree(proc)
+            try:
+                proc.communicate(timeout=5)
+            except Exception:  # noqa: BLE001
+                pass
+            unit = "segundo" if cmd.timeout == 1 else "segundos"
+            return {
+                "outcome": "timeout",
+                "exit_code": None,
+                "speech": f"{cmd.name} passou do tempo limite de {cmd.timeout} {unit} e foi interrompido.",
+            }
+        lines = [ln for ln in (output or "")[-OUTPUT_CAP:].splitlines() if ln.strip()]
+        tail = _short(" ".join(lines[-3:]))
+        if proc.returncode == 0:
+            return {
+                "outcome": "ok",
+                "exit_code": 0,
+                "speech": f"{cmd.name} terminou com sucesso." + (f" Saída: {tail}" if tail else ""),
+            }
+        return {
+            "outcome": "falhou",
+            "exit_code": proc.returncode,
+            "speech": f"{cmd.name} falhou com código {proc.returncode}." + (f" Saída: {tail}" if tail else ""),
+        }
+
+    def _run_webhook(self, cmd: Command) -> dict:
+        secrets = self._secrets()
+        headers = {}
+        for key, value in cmd.headers.items():
+            if value.startswith("env:"):
+                value = secrets.get(value[4:], "")
+                if not value:
+                    return {"outcome": "erro", "speech": f"Não consegui chamar {cmd.name}: falta uma credencial local."}
+            headers[key] = value
+        try:
+            with httpx.Client(transport=self._transport, timeout=cmd.timeout, follow_redirects=False) as http:
+                resp = http.request(
+                    cmd.method, cmd.url, headers=headers, json=cmd.body if cmd.method == "POST" else None
+                )
+        except httpx.HTTPError:
+            return {"outcome": "erro", "speech": f"Não consegui chamar {cmd.name}."}
+        body = _short(resp.text)
+        code = resp.status_code
+        if 200 <= code < 300:
+            return {"outcome": "ok", "speech": f"{cmd.name} respondeu {code}." + (f" {body}" if body else "")}
+        if 300 <= code < 400:
+            return {"outcome": "erro", "speech": f"{cmd.name} respondeu redirecionamento {code}; não segui."}
+        return {"outcome": "erro", "speech": f"{cmd.name} respondeu erro {code}." + (f" {body}" if body else "")}
