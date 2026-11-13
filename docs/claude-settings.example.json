@@ -1,0 +1,9 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "heycode hook" }] }],
+    "PreToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "heycode hook" }] }],
+    "Notification":     [{ "hooks": [{ "type": "command", "command": "heycode hook" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "heycode hook" }] }],
+    "PermissionRequest":[{ "matcher": "*", "hooks": [{ "type": "command", "command": "heycode hook approve", "timeout": 60 }] }]
+  }
+}

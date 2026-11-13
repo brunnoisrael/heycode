@@ -5,7 +5,9 @@ So biblioteca padrao e falha aberta: a ponte nunca pode quebrar nem atrasar o ag
 
 import json
 import os
+import socket
 import sys
+import urllib.parse
 import urllib.request
 
 
@@ -29,10 +31,23 @@ def agent_of(argv):
     return "claude"
 
 
+def bridge_is_up(url, timeout=0.5):
+    """Sonda rapida: no Windows, conectar numa porta fechada leva ~2 s; a ponte fora do ar nao pode atrasar o agente."""
+    parts = urllib.parse.urlsplit(url)
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+        with socket.create_connection((parts.hostname, port), timeout=timeout):
+            return True
+    except (OSError, ValueError):
+        return False
+
+
 def run(argv, stdin=None):
     """Executa o hook. Retorna sempre 0: qualquer erro deixa o agente seguir normalmente."""
     url = os.environ.get("BRIDGE_URL", "http://127.0.0.1:8765")
     secret = os.environ.get("BRIDGE_SECRET", "")
+    if not bridge_is_up(url):
+        return 0
     try:
         agent = agent_of(argv)
         raw = (stdin or sys.stdin.buffer).read()

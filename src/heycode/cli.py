@@ -13,6 +13,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="comando")
     init = sub.add_parser("init", help="cria o diretório do usuário e os segredos (não sobrescreve nada)")
     init.add_argument("--import-legacy", metavar="DIR", help="importa bridge.db e .env de um clone antigo")
+    serve = sub.add_parser("serve", help="sobe a ponte local (FastAPI + MCP em /mcp)")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8765)
+    sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
 
 
@@ -41,7 +45,30 @@ def _cmd_init(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_serve(args: argparse.Namespace) -> int:
+    import socket
+
+    from heycode import config, paths
+
+    config.apply_env(config.load_env_file(paths.config_file()))
+    try:  # porta ocupada: avisa claramente em vez de um traceback do uvicorn
+        with socket.socket() as probe:
+            probe.bind((args.host, args.port))
+    except OSError as exc:
+        print(f"Porta {args.port} em {args.host} indisponível ({exc}); outra ponte já está rodando?", file=sys.stderr)
+        return 1
+    import uvicorn
+
+    uvicorn.run("heycode.app:app", host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    if argv and argv[0] == "hook":  # caminho quente: so biblioteca padrao e falha aberta
+        from heycode import hook
+
+        return hook.run(argv[1:])
     parser = build_parser()
     try:
         args = parser.parse_args(argv)
@@ -52,6 +79,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.command == "init":
         return _cmd_init(args)
+    if args.command == "serve":
+        return _cmd_serve(args)
     return 0
 
 
