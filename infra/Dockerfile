@@ -11,4 +11,7 @@ ENV RELAY_DB=/data/relay.db
 VOLUME ["/data"]
 EXPOSE 8080
 USER nobody
-CMD ["uvicorn", "heycode.relay.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]
+# O relay limita taxa e pareamento por IP de origem. Atras do proxy da plataforma o IP real vem em
+# X-Forwarded-For; `--forwarded-allow-ips "*"` so e seguro porque a porta 8080 NAO e exposta direto
+# (so o proxy chega nela). Se expor a porta, troque "*" pelo IP do proxy: senao a origem pode ser forjada.
+CMD ["uvicorn", "heycode.relay.main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers", "--forwarded-allow-ips", "*"]

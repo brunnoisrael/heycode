@@ -12,6 +12,7 @@ Estado: **somente configuração de exemplo e runbooks**. Nada foi contratado, p
 
 - **Uma única instância** (hub e códigos de pareamento em memória).
 - **SQLite em volume persistente**, não Postgres: a interface `Repository` já isola o banco, mas só o adaptador SQLite foi escrito. O adaptador Postgres e a restauração testada de backup são trabalho antes do beta (P4); até lá, faça backup do volume (`docs/runbooks/restauracao-do-banco.md`).
+- A origem do cliente vem do `X-Forwarded-For` do proxy (ADR 0040): **não exponha a porta 8080 direto**.
 - O TLS termina na plataforma; o cliente local recusa `ws://` fora de localhost.
 
 ## O que o dono precisa fazer (não faço sem pedido explícito)
