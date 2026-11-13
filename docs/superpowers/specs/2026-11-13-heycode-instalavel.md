@@ -1,6 +1,6 @@
 # HeyCode instalável: pacote, CLI e operação multiplataforma
 
-Data: 2026-11-13. Status: rascunho aguardando aprovação do dono.
+Data: 2026-11-13. Status: aprovada pelo dono em 2026-11-13 ("li e gostei, pode aprovar"; registrado pelo agente a pedido expresso).
 
 Visão: `docs/ROADMAP-HEYCODE.md`. Programa: `docs/superpowers/plans/2026-11-13-heycode-publicavel-e-esteira-de-agentes.md` (trilha P1). Esteira: `docs/superpowers/specs/2026-11-13-esteira-obrigatoria-de-agentes.md`.
 

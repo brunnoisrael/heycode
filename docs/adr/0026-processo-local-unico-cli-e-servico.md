@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposto. Data: 2026-11-13.
+Aceito. Data: 2026-11-13.
 
 ## Contexto
 
