@@ -367,6 +367,12 @@ class CommandRunner:
         self._pending = None
         return {**self._execute(current), "done": True, "label": current.name}
 
+    def pending_risk(self) -> str | None:
+        pending = self._pending
+        if pending is None or self._clock() > pending["expires"]:
+            return None
+        return pending["risk"]
+
     def cancel(self) -> dict:
         had = self._pending is not None
         self._pending = None

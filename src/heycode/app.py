@@ -14,6 +14,8 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from heycode import commands as commands_mod
+from heycode import config as config_mod
 from heycode import paths
 from heycode.dictation.routes import make_router as _dictation_router
 from heycode.dictation.service import Dictation
@@ -541,6 +543,82 @@ def decide(d: Decision):
 
 
 AUDIT_DEFAULT, AUDIT_MAX, AUDIT_TEXT = 20, 50, 200
+_COMMAND_EVENT_KEYS = ("name", "risk", "type", "outcome", "exit_code", "duration", "t")
+
+
+def _command_secrets() -> dict:
+    """Valores citados por `env:NOME` nos cabecalhos de webhook: config.env local e ambiente. Nunca saem daqui."""
+    return {**os.environ, **config_mod.load_env_file(paths.config_file())}
+
+
+command_runner = commands_mod.CommandRunner(
+    paths.home() / "commands.json",
+    secrets=_command_secrets,
+    on_event=lambda e: store.log("command_run", e),
+)
+
+
+class CommandRun(BaseModel):
+    spoken: str = Field(max_length=200)
+
+
+class CommandConfirm(BaseModel):
+    pin: Optional[str] = Field(default=None, max_length=20)
+
+
+class CommandDisable(BaseModel):
+    name: str = Field(max_length=40)
+
+
+def _verify_pin(pin: str) -> tuple[bool, str]:
+    """Mesmo PIN e mesmo bloqueio por tentativas da aprovacao por voz (/decide)."""
+    lock = store.get_pin_lock()
+    if time.time() < lock["until"]:
+        return False, "Aprovação por voz bloqueada por alguns minutos. Use o teclado."
+    if not PIN or not hmac.compare_digest(pin.encode(), PIN.encode()):
+        fails = lock["fails"] + 1
+        if fails >= 3:
+            store.set_pin_lock(0, time.time() + 300)
+            return False, "PIN incorreto três vezes. Aprovação por voz bloqueada por cinco minutos."
+        store.set_pin_lock(fails, lock["until"])
+        return False, "PIN incorreto."
+    store.set_pin_lock(0, 0.0)
+    return True, ""
+
+
+@app.get("/voice/commands", dependencies=[Depends(auth_control)])
+def voice_commands():
+    """So o resumo (nome, apelidos, tipo, risco, ligado, descricao): nunca argv, url, cabecalhos ou corpo."""
+    try:
+        return {"commands": command_runner.list()}
+    except commands_mod.CommandError:
+        return {"commands": [], "error": "registro_invalido"}
+
+
+@app.post("/voice/commands/run", dependencies=[Depends(auth_control)])
+def voice_commands_run(r: CommandRun):
+    return command_runner.start(r.spoken)
+
+
+@app.post("/voice/commands/confirm", dependencies=[Depends(auth_control)])
+def voice_commands_confirm(c: CommandConfirm):
+    if command_runner.pending_risk() == "pin" and c.pin:
+        ok, speech = _verify_pin(c.pin)
+        if not ok:
+            return {"ok": False, "done": False, "speech": speech}
+        return command_runner.confirm(pin_ok=True)
+    return command_runner.confirm()
+
+
+@app.post("/voice/commands/cancel", dependencies=[Depends(auth_control)])
+def voice_commands_cancel():
+    return command_runner.cancel()
+
+
+@app.post("/voice/commands/disable", dependencies=[Depends(auth_control)])
+def voice_commands_disable(d: CommandDisable):
+    """So desliga: ligar e editar sao do CLI local (ADR 0051)."""
+    return command_runner.disable(d.name)
 
 
 @app.get("/voice/audit", dependencies=[Depends(auth_control)])
@@ -560,7 +638,8 @@ def voice_audit(limit: int = AUDIT_DEFAULT):
         {"id": r["id"], "agent": r["agent"], "project": r["project"], "status": r["status"],
          "summary": clip(r["summary"]), "t_start": r["t_start"], "t_end": r["t_end"]}
         for r in store.recent_runs(limit)]
-    return {"approvals": approvals, "runs": runs, "limit": limit}
+    commands = [{k: e.get(k) for k in _COMMAND_EVENT_KEYS} for e in store.recent_history("command_run", limit)]
+    return {"approvals": approvals, "runs": runs, "commands": commands, "limit": limit}
 
 
 @app.get("/health")

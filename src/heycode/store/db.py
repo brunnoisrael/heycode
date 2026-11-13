@@ -147,6 +147,18 @@ class Store:
                 " ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
         return [dict(r) for r in rows]
 
+    def recent_history(self, kind: str, limit: int) -> list:
+        with self._lock:
+            rows = self._db.execute(
+                "SELECT payload FROM history WHERE kind=? ORDER BY id DESC LIMIT ?", (kind, limit)).fetchall()
+        out = []
+        for r in rows:
+            try:
+                out.append(json.loads(r["payload"]))
+            except ValueError:
+                continue
+        return out
+
     def get_approval(self, approval_id: int):
         with self._lock:
             row = self._db.execute(
