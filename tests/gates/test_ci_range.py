@@ -2,7 +2,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from ci_range import check_agent_review, check_protected, check_range
+from ci_range import changed_files, check_agent_review, check_protected, check_range
 from workflow_pins import check_workflow_pins
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -200,3 +200,15 @@ def test_acao_local_e_ignorada():
 def test_workflows_do_repositorio_estao_fixados():
     for wf in (ROOT / ".github" / "workflows").glob("*.yml"):
         assert check_workflow_pins(wf.read_text(encoding="utf-8")) == [], wf.name
+
+
+def test_mover_arquivo_protegido_para_fora_nao_esconde_a_mudanca(repo, config):
+    commit(repo, "chore: base gates", {"scripts/gates/x.py": "x = 1" + chr(10) * 30})
+    git(repo, "checkout", "-q", "-b", "pr2")
+    (repo / "outro").mkdir()
+    git(repo, "mv", "scripts/gates/x.py", "outro/x.py")
+    git(repo, "commit", "-q", "--no-verify", "-m", "chore: mover")
+    files = changed_files(repo, "main", "HEAD")
+    assert "scripts/gates/x.py" in files
+    errs = check_protected(files, approvers=set(), author="robo", config=config)
+    assert errs

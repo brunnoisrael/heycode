@@ -21,6 +21,12 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout
 
 
+def changed_files(repo: Path, base: str, head: str) -> list[str]:
+    """Todos os caminhos tocados, sem deteccao de renomeacao (mover arquivo protegido nao esconde o antigo)."""
+    out = _git(Path(repo), "diff", "--name-only", "--no-renames", "-z", f"{base}..{head}")
+    return [p for p in out.split("\0") if p]
+
+
 def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str]:
     """Aplica G1, G2, G3, G4 a cada commit entre base e head (merges ignorados) e G12 ao PR inteiro."""
     repo = Path(repo_root)
@@ -85,7 +91,7 @@ def main(argv: list[str]) -> int:
     if mode == "range":
         errors = check_range(argv[2], argv[3], config, repo)
     elif mode == "approvals":
-        changed = _git(repo, "diff", "--name-only", f"{argv[2]}..{argv[3]}").split()
+        changed = changed_files(repo, argv[2], argv[3])
         approvers = {a for a in os.environ.get("PR_APPROVERS", "").split(",") if a}
         errors = check_protected(changed, approvers, os.environ.get("PR_AUTHOR", ""), config)
     elif mode == "agent-review":

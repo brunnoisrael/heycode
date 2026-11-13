@@ -116,15 +116,13 @@ jobs:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
       - name: Secao Evidencia preenchida
         env:
           BODY: ${{ github.event.pull_request.body }}
-        run: |
-          printf '%s' "$BODY" | python -c "
-          import re, sys
-          body = sys.stdin.read()
-          m = re.search(r'##\s*Evid[eê]ncia\s*\n(.*?)(?:\n##\s|\Z)', body, re.S | re.I)
-          block = (m.group(1) if m else '')
-          if '\`\`\`' not in block or len(block.strip()) < 40:
-              sys.exit('G16: preencha a secao \"Evidencia\" com a saida colada de comando real (bloco de codigo).')
-          "
+        run: python scripts/gates/evidence.py
