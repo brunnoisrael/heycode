@@ -74,7 +74,7 @@ const KIND = {
   "painel:revogar_dispositivo": "Painel: revogou um dispositivo", "painel:instalacao_padrao": "Painel: computador padrão",
   "painel:revogar_computador": "Painel: removeu um computador", "painel:renomear_computador": "Painel: renomeou um computador",
   "painel:criar_atalho": "Painel: criou um atalho", "painel:editar_atalho": "Painel: editou um atalho",
-  "painel:apagar_atalho": "Painel: apagou um atalho",
+  "painel:apagar_atalho": "Painel: apagou um atalho", "painel:desligar_comando": "Painel: desligou um comando do computador",
 };
 const RESULT = {
   ok: ["feito", "ok"], sem_acao: ["sem ação", ""], barrado: ["barrado", "warn"], offline: ["offline", "bad"],
@@ -190,6 +190,7 @@ async function viewAudit() {
 }
 
 async function viewCommands() {
+  await loadInstallations();
   const list = await api("GET", "/v1/commands");
   const f = { id: null };
   const inp = (id, props) => h("input", { id, ...props });
@@ -241,7 +242,42 @@ async function viewCommands() {
     h("button", { onclick: () => toggle(c), text: c.enabled ? "Desligar" : "Ligar" }),
     h("button", { class: "danger", onclick: () => del(c), text: "Apagar" })))
     : empty("Nenhum comando ainda. Crie o primeiro abaixo, por exemplo “rodar testes”.");
-  return page("Comandos", "Atalhos que a Alexa dispara por voz. Cada um vira um pedido a um agente, sempre com confirmação.", cards, form);
+  return page("Comandos", "Atalhos que a Alexa dispara por voz. Cada um vira um pedido a um agente, sempre com confirmação.", cards, form,
+    h("h2", { text: "Comandos do computador" }), computerCommandsSection());
+}
+
+// Scripts e webhooks vivem no proprio computador (ADR 0051): aqui so se ve o resumo que ele anuncia e se desliga.
+function computerCommandsSection() {
+  const RISK = { leitura: ["roda direto", "warn"], confirmar: ["pede confirmação", "ok"], pin: ["exige PIN", "ok"] };
+  const list = h("div");
+  const card = (id, c) => h("div", { class: "card row" },
+    h("div", { class: "grow" },
+      h("div", { class: "name" }, c.name, " ",
+        h("span", { class: "badge", text: c.type === "script" ? "script" : "webhook" }), " ",
+        h("span", { class: "badge " + (RISK[c.risk] || ["", ""])[1], text: (RISK[c.risk] || [c.risk])[0] }), " ",
+        h("span", { class: "badge" + (c.enabled ? " ok" : ""), text: c.enabled ? "ligado" : "desligado" })),
+      c.description ? h("div", { class: "meta", text: c.description }) : null,
+      h("div", { class: "meta", text: "Diga: “executar " + c.name + "”" })),
+    c.enabled ? h("button", { onclick: async () => {
+      try { await api("POST", "/v1/computers/" + encodeURIComponent(id) + "/commands/disable", { name: c.name }); toast("Comando desligado."); load(id); } catch (e) { toast(say(e)); }
+    }, text: "Desligar" }) : null);
+  const load = async (id) => {
+    if (!id) { list.replaceChildren(empty("Nenhum computador pareado.")); return; }
+    list.replaceChildren(h("p", { class: "meta", text: "Perguntando ao computador…" }));
+    try {
+      const d = await api("GET", "/v1/computers/" + encodeURIComponent(id) + "/commands");
+      if (d.error) { list.replaceChildren(empty("O registro de comandos deste computador tem um erro. Rode “heycode command list” nele.")); return; }
+      list.replaceChildren(...(d.commands.length ? d.commands.map((c) => card(id, c)) : [empty("Nenhum comando cadastrado neste computador.")]));
+    } catch (e) { list.replaceChildren(empty(e.detail === "offline" ? "O computador está offline: os comandos dele só aparecem com ele conectado." : say(e))); }
+  };
+  const select = h("select", { "aria-label": "Computador", onchange: (e) => load(e.target.value) },
+    state.installations.map((i) => h("option", { value: i.id, text: i.name })));
+  load(select.value);
+  return h("div", {},
+    h("p", { class: "meta", text: "Scripts e webhooks são definidos no próprio computador. Criar, editar e ligar só pelo terminal; aqui você vê o que ele anuncia e pode desligar." }),
+    h("div", { class: "card" }, h("label", { for: "pc-sel", text: "Computador" }), Object.assign(select, { id: "pc-sel" }),
+      h("pre", { class: "cmd", text: "heycode command add 'reiniciar app' --risk confirmar --script -- systemctl --user restart app\nheycode command add 'acender luz' --risk confirmar --webhook https://casa.exemplo.com/luz --method POST" })),
+    list);
 }
 
 async function viewPair() {

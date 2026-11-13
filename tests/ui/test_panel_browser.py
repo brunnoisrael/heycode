@@ -1,5 +1,7 @@
 """Painel em navegador de verdade (Playwright + Chromium) contra um relay real. Pula se o Playwright faltar."""
 
+import asyncio
+import json
 import socket
 import threading
 import time
@@ -11,8 +13,11 @@ import uvicorn
 sync_api = pytest.importorskip("playwright.sync_api")
 expect = sync_api.expect
 
+from heycode.identity.keys import generate_keypair, load_private_key  # noqa: E402
 from heycode.relay.app import create_app  # noqa: E402
 from heycode.relay.repo import SqliteRepository  # noqa: E402
+from heycode.relay_client import RelayClient, ws_url  # noqa: E402
+from heycode.relay_executor import BridgeExecutor  # noqa: E402
 
 EMAIL, PASSWORD = "ana@exemplo.com", "senha-bem-longa"
 XSS = "<img src=x onerror=window.__pwned=1> teste"
@@ -156,6 +161,94 @@ def test_08_comando_novo_e_html_malicioso_aparece_como_texto(page):
     page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Apagar").click()
     page.wait_for_selector("text=Nenhum comando ainda")
+
+
+def test_08b_comandos_do_computador_aparecem_e_so_podem_ser_desligados(page, server, tmp_path_factory):
+    base, _ = server
+    auth = _bearer(base)
+    keydir = tmp_path_factory.mktemp("servidor")
+    pub = generate_keypair(keydir)
+    code = httpx.post(base + "/v1/pair/codes", headers=auth).json()["code"]
+    pid = httpx.post(
+        base + "/v1/pair/redeem", json={"code": code, "public_key": pub, "name": "Servidor de testes"}
+    ).json()["pending_id"]
+    httpx.post(base + "/v1/pair/machine-confirm", json={"pending_id": pid})
+    iid = httpx.post(base + "/v1/pair/confirm", headers=auth, json={"pending_id": pid}).json()["installation_id"]
+
+    received = []
+
+    def bridge(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        received.append((request.method, request.url.path, body))
+        if request.url.path == "/voice/commands":
+            return httpx.Response(
+                200,
+                json={
+                    "commands": [
+                        {
+                            "name": "reiniciar app",
+                            "aliases": [],
+                            "type": "script",
+                            "risk": "confirmar",
+                            "enabled": True,
+                            "description": "reinicia o servico",
+                        },
+                        {
+                            "name": "ver disco",
+                            "aliases": [],
+                            "type": "script",
+                            "risk": "leitura",
+                            "enabled": True,
+                            "description": "",
+                        },
+                    ]
+                },
+            )
+        return httpx.Response(200, json={"ok": True, "speech": "desligado"})
+
+    executor = BridgeExecutor(
+        "http://127.0.0.1:8765", "segredo-local", auto_allowed=lambda: False, transport=httpx.MockTransport(bridge)
+    )
+
+    async def instruction(payload):
+        return {"run_id": "1", "state": "done", "summary": "ok"}
+
+    client = RelayClient(ws_url(base), iid, load_private_key(keydir), instruction, bridge=executor)
+    loop = asyncio.new_event_loop()
+    holder = {}
+
+    def run():
+        asyncio.set_event_loop(loop)
+        holder["t"] = loop.create_task(client.run_forever())
+        try:
+            loop.run_until_complete(holder["t"])
+        except asyncio.CancelledError:
+            pass
+
+    thread = threading.Thread(target=run, daemon=True)
+    thread.start()
+    try:
+        for _ in range(100):  # espera o computador conectar
+            online = [i for i in httpx.get(base + "/v1/installations", headers=auth).json() if i["id"] == iid]
+            if online and online[0]["online"]:
+                break
+            time.sleep(0.05)
+        nav(page, "Conta")  # sair da tela atual: clicar no mesmo link nao recarrega os dados
+        nav(page, "Comandos")
+        page.select_option("#pc-sel", label="Servidor de testes")
+        card = page.locator(".card.row", has_text="reiniciar app")
+        expect(card).to_contain_text("pede confirmação")
+        expect(page.locator(".card.row", has_text="ver disco")).to_contain_text("roda direto")
+        texto_do_cartao = card.inner_text()
+        assert "http" not in texto_do_cartao and "argv" not in texto_do_cartao  # o computador so anuncia o resumo
+        card.get_by_role("button", name="Desligar").click()
+        expect(page.locator("#toast")).to_contain_text("desligado")
+        assert ("POST", "/voice/commands/disable", {"name": "reiniciar app"}) in received
+        nav(page, "Rastro")
+        expect(page.locator("main")).to_contain_text("Painel: desligou um comando do computador")
+    finally:
+        loop.call_soon_threadsafe(holder["t"].cancel)
+        thread.join(5)
 
 
 def test_09_tema_e_cor_persistem_so_no_navegador(page):

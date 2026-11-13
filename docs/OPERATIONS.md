@@ -57,3 +57,23 @@ O relay serve o painel em `/app` (Computadores, Dispositivos, Rastro, Comandos, 
 - **Reiniciar o relay** invalida o token anti-CSRF de cada sessão: quem estava no painel só precisa recarregar a página.
 - **Atalhos por voz** exigem enviar o modelo de interação atualizado ao console da Amazon (a `RunCommandIntent` é nova, ADR 0050) e podem ser criados, desligados e apagados no painel sem republicar a skill.
 - **Teste de navegador:** `tests/ui` usa Playwright e pula sozinho se ele ou o Chromium faltarem (`pip install playwright && playwright install chromium`). A CSP do painel proíbe `eval`, então os testes esperam por elementos, não por `wait_for_function`.
+
+## Comandos locais por voz (scripts e webhooks)
+
+Para dizer "Alexa, executar reiniciar app" e algo rodar no computador, cadastre o comando **no próprio computador** (nunca pelo painel):
+
+```bash
+heycode command add 'reiniciar app' --risk confirmar --script -- systemctl --user restart app
+heycode command add 'acender luz' --risk confirmar --webhook https://casa.exemplo.com/luz --method POST \
+    --header 'Authorization: env:HA_TOKEN'
+heycode command list
+heycode command test 'reiniciar app'      # roda aqui, sem a Alexa
+heycode command disable|enable|remove 'reiniciar app'
+```
+
+- As opções vêm **antes** do `--`; tudo depois dele é argumento do programa (sem shell).
+- **Risco:** `leitura` roda direto (use só para consultas), `confirmar` pergunta "Confirma?", `pin` exige "aprovar" com o PIN (mesmo PIN e bloqueio da aprovação por voz).
+- Segredos de webhook ficam em `config.env` e são citados como `env:NOME`; o valor nunca sai do computador.
+- O painel mostra o resumo e pode **desligar** um comando (interruptor de segurança); ligar, criar e editar só pelo CLI.
+- O que a voz executou aparece no rastro (nome, risco e resultado), nunca a saída do comando.
+- No Windows use o caminho completo do programa em `--script --`.
