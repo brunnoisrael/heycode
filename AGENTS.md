@@ -24,9 +24,12 @@ Editar um ADR existente não basta. Os caminhos que contam como arquitetura fica
 ## Commits
 
 - Formato: `tipo: descrição`, com tipo em `feat|fix|docs|chore|test|refactor`.
-- `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:` apontando para uma spec existente.
+- `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:` apontando para uma spec existente **e aprovada**
+  (`Status: aprovada` nas 10 primeiras linhas; a aprovação é de uma pessoa, nunca do agente).
 - `docs` e `chore` são isentos do trailer.
-- Commits são locais; o remoto GitHub ainda não está configurado.
+- O CI é a autoridade dos gates (`docs/SDLC.md`, ADR 0024); os hooks locais são só conveniência. Nunca use
+  `--no-verify`, nem altere gates, workflows, `AGENTS.md`, `CLAUDE.md`, `.claude/` ou CODEOWNERS sem pedido humano.
+- O remoto GitHub (conta do dono) ainda será criado por ele; até lá os commits são locais.
 
 ## Comandos
 
