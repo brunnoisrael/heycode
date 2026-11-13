@@ -84,10 +84,10 @@ def check_agent_review(reviews: list[dict], head_sha: str, bot_login: str, autho
     return []
 
 
-def main(argv: list[str]) -> int:
+def main(argv: list[str], repo: Path | None = None) -> int:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     mode = argv[1]
-    repo = Path(__file__).resolve().parents[2]
+    repo = repo or Path(__file__).resolve().parents[2]
     if mode == "range":
         errors = check_range(argv[2], argv[3], config, repo)
     elif mode == "approvals":
