@@ -38,6 +38,67 @@ class FakeBridge:
         path = request.url.path
         if path == "/status":
             return httpx.Response(200, json={"speech": "Nenhum agente em execução."})
+        if path == "/voice/commands":
+            return httpx.Response(
+                200,
+                json={
+                    "commands": [
+                        {
+                            "name": "reiniciar app",
+                            "aliases": [],
+                            "type": "script",
+                            "risk": "confirmar",
+                            "enabled": True,
+                            "description": "reinicia o servico",
+                        },
+                        {
+                            "name": "deploy",
+                            "aliases": [],
+                            "type": "script",
+                            "risk": "pin",
+                            "enabled": True,
+                            "description": "",
+                        },
+                    ]
+                },
+            )
+        if path == "/voice/commands/run":
+            said = (body or {}).get("spoken", "")
+            if "reiniciar" in said:
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "label": "reiniciar app",
+                        "pending": {"risk": "confirmar"},
+                        "speech": "Vou executar reiniciar app. Confirma?",
+                    },
+                )
+            if "deploy" in said:
+                return httpx.Response(
+                    200,
+                    json={
+                        "ok": True,
+                        "label": "deploy",
+                        "pending": {"risk": "pin"},
+                        "speech": "Vou executar deploy. Esse comando exige o seu PIN.",
+                    },
+                )
+            if "disco" in said:
+                return httpx.Response(
+                    200, json={"ok": True, "label": "ver disco", "speech": "ver disco terminou com sucesso."}
+                )
+            return httpx.Response(200, json={"ok": False, "speech": "Não achei esse comando."})
+        if path == "/voice/commands/confirm":
+            if (body or {}).get("pin") not in (None, "1234"):
+                return httpx.Response(200, json={"ok": False, "done": False, "speech": "PIN incorreto."})
+            return httpx.Response(
+                200, json={"ok": True, "done": True, "label": "x", "speech": "Pronto, comando executado."}
+            )
+        if path == "/voice/commands/cancel":
+            return httpx.Response(200, json={"ok": True, "speech": "Cancelado."})
+        if path == "/voice/commands/disable":
+            return httpx.Response(200, json={"ok": body.get("name") == "reiniciar app", "speech": "desligado"})
         if path == "/dictation":
             return httpx.Response(200, json={"speech": "Vou pedir ao codex. Confirma?", "ok": True})
         if path == "/voice/audit":
@@ -339,3 +400,86 @@ def test_atalho_cadastrado_no_painel_vira_ditado_com_confirmacao_na_ponte(world)
         assert "Não achei" in speech(out)
     finally:
         m.stop()
+
+
+def test_comando_local_leitura_roda_direto_confirmar_e_pin_seguem_o_fluxo(world):
+    base, env, tok, bridge, m = ready(world)
+    try:
+        out = say(base, env, tok, "RunCommandIntent", {"comando": "ver disco"})
+        assert speech(out) == "ver disco terminou com sucesso."  # leitura: sem pergunta
+        out = say(base, env, tok, "RunCommandIntent", {"comando": "reiniciar o app"})
+        assert out["sessionAttributes"]["pending_command"] == {"risk": "confirmar"} and "Confirma?" in speech(out)
+        assert not [c for c in bridge.received if c[1] == "/voice/commands/confirm"]  # nada confirmado ainda
+        out = say(base, env, tok, "ConfirmIntent", attrs=out["sessionAttributes"])
+        assert speech(out) == "Pronto, comando executado." and "pending_command" not in out["sessionAttributes"]
+        out = say(base, env, tok, "RunCommandIntent", {"comando": "deploy"})
+        assert out["sessionAttributes"]["pending_command"] == {"risk": "pin"}
+        wrong = say(base, env, tok, "ApproveIntent", {"pin": "0000"}, out["sessionAttributes"])
+        assert speech(wrong) == "PIN incorreto." and wrong["sessionAttributes"]["pending_command"] == {"risk": "pin"}
+        done = say(base, env, tok, "ApproveIntent", {"pin": "1234"}, wrong["sessionAttributes"])
+        assert speech(done) == "Pronto, comando executado."
+        assert "1234" not in str(done) and "0000" not in str(done)
+        auth = {
+            "Authorization": "Bearer "
+            + httpx.post(base + "/v1/login", json={"email": "a@exemplo.com", "password": "senha-bem-longa"}).json()[
+                "token"
+            ]
+        }
+        linhas = httpx.get(base + "/v1/audit", headers=auth, params={"limit": 50}).json()
+        assert "ver disco" in {r["label"] for r in linhas} and "1234" not in str(linhas)
+    finally:
+        m.stop()
+
+
+def test_painel_lista_e_desliga_comandos_do_computador_e_isola_contas(world):
+    base, env, tok, bridge, m = ready(world)
+    try:
+        auth = {
+            "Authorization": "Bearer "
+            + httpx.post(base + "/v1/login", json={"email": "a@exemplo.com", "password": "senha-bem-longa"}).json()[
+                "token"
+            ]
+        }
+        r = httpx.get(f"{base}/v1/computers/{m.id}/commands", headers=auth)
+        assert r.status_code == 200 and [c["name"] for c in r.json()["commands"]] == ["reiniciar app", "deploy"]
+        assert "argv" not in r.text and "url" not in r.text
+        off = httpx.post(f"{base}/v1/computers/{m.id}/commands/disable", headers=auth, json={"name": "reiniciar app"})
+        assert off.status_code == 200 and off.json()["ok"] is True
+        assert bridge.received[-1][:3] == ("POST", "/voice/commands/disable", {"name": "reiniciar app"})
+        linhas = httpx.get(base + "/v1/audit", headers=auth).json()
+        assert ("painel:desligar_comando", "reiniciar app") in {(r["kind"], r["label"]) for r in linhas}
+        # nao ha rota para ligar: o painel so consegue desligar
+        assert httpx.post(
+            f"{base}/v1/computers/{m.id}/commands/enable", headers=auth, json={"name": "x"}
+        ).status_code in (404, 405)
+        httpx.post(base + "/v1/register", json={"email": "b@exemplo.com", "password": "senha-bem-longa"})
+        btok = httpx.post(base + "/v1/login", json={"email": "b@exemplo.com", "password": "senha-bem-longa"}).json()[
+            "token"
+        ]
+        other = {"Authorization": "Bearer " + btok}
+        assert httpx.get(f"{base}/v1/computers/{m.id}/commands", headers=other).status_code == 404
+        assert (
+            httpx.post(
+                f"{base}/v1/computers/{m.id}/commands/disable", headers=other, json={"name": "deploy"}
+            ).status_code
+            == 404
+        )
+    finally:
+        m.stop()
+
+
+def test_painel_com_computador_offline_diz_503(world):
+    base, env, tok, bridge, m = ready(world)
+    auth = {
+        "Authorization": "Bearer "
+        + httpx.post(base + "/v1/login", json={"email": "a@exemplo.com", "password": "senha-bem-longa"}).json()["token"]
+    }
+    m.stop()
+    deadline = time.time() + 5
+    code = None
+    while time.time() < deadline:
+        code = httpx.get(f"{base}/v1/computers/{m.id}/commands", headers=auth).status_code
+        if code == 503:
+            break
+        time.sleep(0.1)
+    assert code == 503

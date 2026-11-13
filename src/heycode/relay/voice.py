@@ -160,6 +160,7 @@ async def _more_projects(r: _Req, call: Call) -> Reply:
 
 
 async def _pending(r: _Req, call: Call) -> Reply:
+    r.attrs.pop("pending_command", None)
     d = await call("GET", "/pending")
     # amarra a decisao ao pedido que foi lido em voz alta
     if d.get("approval_id") is None:
@@ -183,6 +184,14 @@ async def _result(r: _Req, call: Call) -> Reply:
 
 
 async def _approve(r: _Req, call: Call) -> Reply:
+    if r.attrs.get("pending_command"):  # comando local que exige PIN: a ponte verifica o PIN (ADR 0053)
+        pin = r.slot("pin")
+        if not pin:
+            return Reply("Qual é o seu PIN?", "Diga o seu PIN de quatro dígitos.", elicit="pin")
+        d = await call("POST", "/voice/commands/confirm", {"pin": pin})
+        if d.get("done"):
+            r.attrs.pop("pending_command", None)
+        return Reply(_say(d))
     approval_id = r.attrs.get("approval_id")
     if approval_id is None:
         return Reply(NEED_PENDING, "O que você quer saber?")
@@ -194,6 +203,9 @@ async def _approve(r: _Req, call: Call) -> Reply:
 
 
 async def _deny(r: _Req, call: Call) -> Reply:
+    if r.attrs.get("pending_command"):
+        r.attrs.pop("pending_command", None)
+        return Reply(_say(await call("POST", "/voice/commands/cancel")))
     approval_id = r.attrs.get("approval_id")
     if approval_id is None:
         return Reply(NEED_PENDING, "O que você quer saber?")
@@ -226,6 +238,7 @@ async def _select_project(r: _Req, call: Call) -> Reply:
     d = await call("GET", f"/voice/projects/resolve?name={quote(project, safe='')}")
     # uma troca explicita nunca deixa resposta de outro fluxo pronta para confirmacao
     r.attrs.pop("free_answer", None)
+    r.attrs.pop("pending_command", None)
     r.attrs.pop("ask", None)
     r.attrs["block_prior_confirmation"] = True
     if d.get("ok") and isinstance(d.get("project"), str) and d["project"]:
@@ -262,6 +275,7 @@ async def _cancel_answer(r: _Req, call: Call) -> Reply:
 
 async def _ask_agent(r: _Req, call: Call) -> Reply:
     r.attrs.pop("free_answer", None)
+    r.attrs.pop("pending_command", None)
     saved = r.attrs.get("ask") or {}
     agent = _resolve_agent(r) or saved.get("agent")
     project = _resolve_project(r) or saved.get("project") or r.attrs.get("selected_project")
@@ -280,6 +294,7 @@ async def _ask_agent(r: _Req, call: Call) -> Reply:
 
 async def _send_instruction(r: _Req, call: Call) -> Reply:
     r.attrs.pop("free_answer", None)
+    r.attrs.pop("pending_command", None)
     if r.attrs.get("selected_project"):
         return Reply(
             "Ainda não consigo avisar o agente aberto de um projeto específico. "
@@ -298,6 +313,7 @@ async def _send_instruction(r: _Req, call: Call) -> Reply:
 
 async def _create_project(r: _Req, call: Call) -> Reply:
     r.attrs.pop("free_answer", None)
+    r.attrs.pop("pending_command", None)
     saved = r.attrs.get("create") or {}
     agent = _resolve_agent(r) or saved.get("agent")
     name = r.slot("nome") or saved.get("name") or ""
@@ -322,19 +338,41 @@ async def _create_project(r: _Req, call: Call) -> Reply:
 async def _run_command(r: _Req, call: Call) -> Reply:
     """Atalho cadastrado no painel: vira o mesmo ditado do pedido por voz, que pede "Confirma?" (ADR 0048)."""
     r.attrs.pop("free_answer", None)
-    if not r.shortcuts:
-        return Reply("Você ainda não cadastrou comandos. Crie um no painel do HeyCode.")
+    r.attrs.pop("pending_command", None)
     spoken = r.slot("comando")
     if not spoken:
         return Reply("Qual comando você quer executar?", "Qual comando?", elicit="comando")
-    found, why = match(spoken, r.shortcuts)
-    if found is None:
-        if why == "ambiguous":
-            return Reply("Mais de um comando parece esse. Diga o nome completo.", "Qual comando?")
-        return Reply("Não achei esse comando. Diga executar e o nome de um comando cadastrado.", "Qual comando?")
-    r.meta["label"] = found["name"]
-    project = found.get("project") or r.attrs.get("selected_project")
-    return await _dictate(r, call, found["agent"], found["instruction"], project)
+    found, why = match(spoken, r.shortcuts) if r.shortcuts else (None, "none")
+    if found is not None:  # atalho de agente cadastrado no painel (fase A)
+        r.meta["label"] = found["name"]
+        project = found.get("project") or r.attrs.get("selected_project")
+        return await _dictate(r, call, found["agent"], found["instruction"], project)
+    if why == "ambiguous":
+        return Reply("Mais de um comando parece esse. Diga o nome completo.", "Qual comando?")
+    # nenhum atalho: a maquina procura nos comandos locais (scripts e webhooks, ADR 0051)
+    d = await call("POST", "/voice/commands/run", {"spoken": spoken})
+    if d.get("label"):
+        r.meta["label"] = d["label"]
+    pending = d.get("pending")
+    if isinstance(pending, dict) and pending.get("risk") in ("confirmar", "pin"):
+        r.attrs["pending_command"] = {"risk": pending["risk"]}
+        again = "Confirma?" if pending["risk"] == "confirmar" else "Diga aprovar com o seu PIN."
+        return Reply(_say(d), again)
+    return Reply(_say(d), None if d.get("ok") or d.get("label") else "Qual comando?")
+
+
+async def _confirm_command(r: _Req, call: Call) -> Reply:
+    if (r.attrs.get("pending_command") or {}).get("risk") == "pin":
+        return Reply("Esse comando exige o seu PIN. Diga aprovar e o seu PIN.", "Diga aprovar e o seu PIN.")
+    d = await call("POST", "/voice/commands/confirm", {})
+    if d.get("done"):
+        r.attrs.pop("pending_command", None)
+    return Reply(_say(d))
+
+
+async def _cancel_command(r: _Req, call: Call) -> Reply:
+    r.attrs.pop("pending_command", None)
+    return Reply(_say(await call("POST", "/voice/commands/cancel")))
 
 
 def _simple_post(path: str) -> Callable[[_Req, Call], Awaitable[Reply]]:
@@ -395,11 +433,15 @@ def _pick(r: _Req) -> Callable[[_Req, Call], Awaitable[Reply]]:
     if r.name == "ConfirmIntent":  # a ordem importa, como no Lambda
         if r.attrs.get("free_answer"):
             return _confirm_answer
+        if r.attrs.get("pending_command"):
+            return _confirm_command
         if r.attrs.get("block_prior_confirmation"):
             return _reject_stale
         return _simple_post("/confirm")
     if r.name == "CancelDictationIntent":
-        return _cancel_answer if r.attrs.get("free_answer") else _simple_post("/cancel")
+        if r.attrs.get("free_answer"):
+            return _cancel_answer
+        return _cancel_command if r.attrs.get("pending_command") else _simple_post("/cancel")
     return _BY_INTENT.get(r.name or "", _fallback)
 
 

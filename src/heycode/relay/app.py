@@ -71,6 +71,10 @@ class DeviceBody(BaseModel):
     device_id: str
 
 
+class DisableCommandBody(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+
+
 class RenameBody(BaseModel):
     name: str = Field(min_length=1, max_length=64)
 
@@ -431,6 +435,43 @@ def create_app(
     ) -> list[dict]:
         limit = max(1, min(limit, 100))
         return repo.list_audit(account_id, limit, before, installation_id, device_id, result)
+
+    async def _ask_machine(
+        account_id: str, installation_id: str, method: str, path: str, body: dict | None = None
+    ) -> dict:
+        """Pergunta ao proprio computador (canal assinado); o relay repassa e esquece (ADR 0047)."""
+        if repo.get_owned_installation(account_id, installation_id) is None:
+            raise HTTPException(404, "nao encontrado")
+        payload: dict = {"method": method, "path": path}
+        if body is not None:
+            payload["body"] = body
+        envelope = frame("bridge-call", installation_id, payload)
+        state, result = await hub.request(installation_id, account_id, envelope, sync_timeout)
+        if state == "offline":
+            raise HTTPException(503, "offline")
+        if (
+            state != "done"
+            or not isinstance(result, dict)
+            or result.get("status") != 200
+            or not isinstance(result.get("body"), dict)
+        ):
+            raise HTTPException(502, "computador nao respondeu")
+        return result["body"]
+
+    @app.get("/v1/computers/{installation_id}/commands")
+    async def computer_commands(installation_id: str, account_id: str = Depends(current_account)) -> dict:
+        """Resumo dos comandos locais que o computador anuncia (nunca argv, url ou cabecalhos)."""
+        return await _ask_machine(account_id, installation_id, "GET", "/voice/commands")
+
+    @app.post("/v1/computers/{installation_id}/commands/disable")
+    async def computer_command_disable(
+        installation_id: str, body: DisableCommandBody, account_id: str = Depends(current_account)
+    ) -> dict:
+        """So desligar: ligar e criar comandos locais e do CLI no computador (ADR 0051)."""
+        out = await _ask_machine(account_id, installation_id, "POST", "/voice/commands/disable", {"name": body.name})
+        if out.get("ok"):
+            audit(account_id, "painel:desligar_comando", installation_id=installation_id, label=body.name)
+        return out
 
     @app.get("/v1/audit/detail")
     async def audit_detail(installation_id: str, limit: int = 20, account_id: str = Depends(current_account)) -> dict:

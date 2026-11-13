@@ -108,9 +108,8 @@ def test_atalho_sem_projeto_usa_o_projeto_da_sessao():
     assert b.calls[0][2]["project"] == "web"
 
 
-def test_atalho_nao_achado_e_ambiguo_e_sem_nome():
+def test_atalho_ambiguo_e_sem_nome_nao_chamam_o_computador():
     b = Bridge()
-    assert "Não achei" in speech(run(intent({"comando": "cafe"}), b, [sc("rodar testes")]))
     amb = [sc("rodar testes api", sid="a"), sc("rodar testes app", sid="b")]
     assert "Mais de um" in speech(run(intent({"comando": "rodar testes ap"}), b, amb))
     r = run(intent(), b, [sc("rodar testes")])
@@ -119,14 +118,166 @@ def test_atalho_nao_achado_e_ambiguo_e_sem_nome():
     assert b.calls == []
 
 
-def test_sem_atalhos_cadastrados_explica_onde_criar():
-    assert "painel" in speech(run(intent({"comando": "x"}), Bridge(), []))
+def test_sem_atalho_correspondente_a_fala_vai_para_os_comandos_locais():
+    nao = {"ok": False, "speech": "Não achei esse comando. Diga executar e o nome de um comando cadastrado."}
+    b = Bridge({("POST", "/voice/commands/run"): nao})
+    assert "Não achei" in speech(run(intent({"comando": "cafe"}), b, [sc("rodar testes")]))
+    assert b.calls == [("POST", "/voice/commands/run", {"spoken": "cafe"})]
+    b2 = Bridge({("POST", "/voice/commands/run"): nao})
+    assert "Não achei" in speech(run(intent({"comando": "x"}), b2, []))  # sem atalhos: direto aos locais
+    assert len(b2.calls) == 1
 
 
 def test_confirmacao_antiga_nao_e_herdada_pelo_atalho():
     b = Bridge({("POST", "/dictation"): {"speech": "Confirma?", "ok": True}})
     r = run(intent({"comando": "rodar testes"}, {"block_prior_confirmation": True}), b, [sc("rodar testes")])
     assert "block_prior_confirmation" not in r["sessionAttributes"]
+
+
+# ---------- voz: comandos locais (scripts e webhooks) ----------
+
+
+def local(replies):
+    return Bridge({("POST", "/voice/commands/run"): replies} if isinstance(replies, dict) else replies)
+
+
+def test_leitura_local_roda_e_fala_o_resultado_sem_pendencia():
+    b = local({"ok": True, "label": "ver disco", "speech": "ver disco terminou com sucesso. Saída: 40 por cento."})
+    meta = {}
+    r = run(intent({"comando": "ver disco"}), b, [], meta)
+    assert speech(r) == "ver disco terminou com sucesso. Saída: 40 por cento." and meta == {"label": "ver disco"}
+    assert "pending_command" not in r["sessionAttributes"] and "reprompt" not in r["response"]
+
+
+def test_confirmar_local_guarda_a_pendencia_e_pergunta():
+    b = local(
+        {
+            "ok": True,
+            "label": "reiniciar app",
+            "pending": {"risk": "confirmar"},
+            "speech": "Vou executar reiniciar app. Confirma?",
+        }
+    )
+    r = run(intent({"comando": "reiniciar app"}), b, [])
+    assert r["sessionAttributes"]["pending_command"] == {"risk": "confirmar"}
+    assert r["response"]["reprompt"]["outputSpeech"]["text"] == "Confirma?"
+
+
+def test_pin_local_pede_para_aprovar_com_o_pin():
+    b = local(
+        {
+            "ok": True,
+            "label": "deploy",
+            "pending": {"risk": "pin"},
+            "speech": "Vou executar deploy. Esse comando exige o seu PIN.",
+        }
+    )
+    r = run(intent({"comando": "deploy"}), b, [])
+    assert r["sessionAttributes"]["pending_command"] == {"risk": "pin"}
+    assert "PIN" in r["response"]["reprompt"]["outputSpeech"]["text"]
+
+
+def confirm_intent(attrs):
+    return {
+        "session": {"attributes": attrs},
+        "request": {"type": "IntentRequest", "intent": {"name": "ConfirmIntent", "slots": {}}},
+    }
+
+
+def test_confirma_executa_o_comando_local_e_limpa_a_pendencia():
+    b = Bridge(
+        {
+            ("POST", "/voice/commands/confirm"): {
+                "ok": True,
+                "done": True,
+                "speech": "reiniciar app terminou com sucesso.",
+            }
+        }
+    )
+    r = run(confirm_intent({"pending_command": {"risk": "confirmar"}}), b, [])
+    assert b.calls == [("POST", "/voice/commands/confirm", {})]
+    assert speech(r) == "reiniciar app terminou com sucesso." and "pending_command" not in r["sessionAttributes"]
+
+
+def test_confirma_nao_executa_comando_que_exige_pin():
+    b = Bridge()
+    r = run(confirm_intent({"pending_command": {"risk": "pin"}}), b, [])
+    assert b.calls == [] and "PIN" in speech(r) and r["sessionAttributes"]["pending_command"] == {"risk": "pin"}
+
+
+def test_pendencia_nao_cumprida_continua_ate_dar_certo():
+    b = Bridge(
+        {("POST", "/voice/commands/confirm"): {"ok": False, "done": False, "speech": "Já há um comando em execução."}}
+    )
+    r = run(confirm_intent({"pending_command": {"risk": "confirmar"}}), b, [])
+    assert r["sessionAttributes"]["pending_command"] == {"risk": "confirmar"}
+
+
+def approve(slots, attrs):
+    s = {k: {"name": k, "value": v} for k, v in slots.items()}
+    return {
+        "session": {"attributes": attrs},
+        "request": {"type": "IntentRequest", "intent": {"name": "ApproveIntent", "slots": s}},
+    }
+
+
+def test_aprovar_com_pin_executa_o_comando_local():
+    b = Bridge(
+        {("POST", "/voice/commands/confirm"): {"ok": True, "done": True, "speech": "deploy terminou com sucesso."}}
+    )
+    r = run(approve({"pin": "1234"}, {"pending_command": {"risk": "pin"}}), b, [])
+    assert b.calls == [("POST", "/voice/commands/confirm", {"pin": "1234"})]
+    assert speech(r) == "deploy terminou com sucesso." and "pending_command" not in r["sessionAttributes"]
+    assert "1234" not in str(r)
+
+
+def test_aprovar_sem_pin_pergunta_o_pin_e_pin_errado_mantem_a_pendencia():
+    r = run(approve({}, {"pending_command": {"risk": "pin"}}), Bridge(), [])
+    assert speech(r) == "Qual é o seu PIN?" and r["response"]["directives"][0]["slotToElicit"] == "pin"
+    b = Bridge({("POST", "/voice/commands/confirm"): {"ok": False, "done": False, "speech": "PIN incorreto."}})
+    r = run(approve({"pin": "0000"}, {"pending_command": {"risk": "pin"}}), b, [])
+    assert speech(r) == "PIN incorreto." and r["sessionAttributes"]["pending_command"] == {"risk": "pin"}
+
+
+def test_negar_e_cancelar_descartam_o_comando_local():
+    b = Bridge({("POST", "/voice/commands/cancel"): {"ok": True, "speech": "Cancelado."}})
+    deny = {
+        "session": {"attributes": {"pending_command": {"risk": "confirmar"}}},
+        "request": {"type": "IntentRequest", "intent": {"name": "DenyIntent", "slots": {}}},
+    }
+    r = run(deny, b, [])
+    assert b.calls == [("POST", "/voice/commands/cancel", None)] and "pending_command" not in r["sessionAttributes"]
+    cancel = {
+        "session": {"attributes": {"pending_command": {"risk": "confirmar"}}},
+        "request": {"type": "IntentRequest", "intent": {"name": "CancelDictationIntent", "slots": {}}},
+    }
+    b2 = Bridge({("POST", "/voice/commands/cancel"): {"ok": True, "speech": "Cancelado."}})
+    r2 = run(cancel, b2, [])
+    assert speech(r2) == "Cancelado." and "pending_command" not in r2["sessionAttributes"]
+
+
+@pytest.mark.parametrize(
+    "name", ["PendingIntent", "SelectProjectIntent", "AskAgentIntent", "SendInstructionIntent", "CreateProjectIntent"]
+)
+def test_nova_tarefa_descarta_a_pendencia_de_comando_local(name):
+    slots = {
+        "projeto": {"name": "projeto", "value": "api"},
+        "agente": {"name": "agente", "value": "claude"},
+        "instrucao": {"name": "instrucao", "value": "x"},
+        "nome": {"name": "nome", "value": "meu app"},
+    }
+    req = {
+        "session": {"attributes": {"pending_command": {"risk": "confirmar"}}},
+        "request": {"type": "IntentRequest", "intent": {"name": name, "slots": slots}},
+    }
+    b = Bridge(
+        {
+            ("GET", "/pending"): {"speech": "Nada pendente."},
+            ("GET", "/voice/projects/resolve?name=api"): {"ok": True, "project": "api", "speech": "ok"},
+        }
+    )
+    r = run(req, b, [])
+    assert "pending_command" not in r["sessionAttributes"]
 
 
 # ---------- API do painel ----------
