@@ -12,10 +12,10 @@ Pré-requisitos **do dono** (nada disso é feito por agente): conta de desenvolv
 
 1. Instalar o HeyCode, `heycode init`, `heycode pair CÓDIGO --relay https://...`, `heycode connect`.
 2. Vincular a conta pelo aplicativo da Alexa; autorizar o dispositivo no aplicativo do HeyCode quando a skill pedir.
-3. "Alexa, abrir HeyCode": esperado "conectado ao computador X". Derrubar `heycode connect`: esperado "offline".
+3. "Alexa, abrir HeyCode": esperado "conectado ao computador X" seguido de "Pronto. Pergunte o status...". Peça o status, as pendências e aprove um pedido com o PIN. Derrubar `heycode connect`: esperado "offline".
 4. Revogar o dispositivo e confirmar que a skill volta a pedir autorização.
 5. Excluir a conta e confirmar que o computador deixa de conectar.
 
 ## O que registrar
 
-Falhas de reconhecimento (sotaque, nomes de projeto), tempo de resposta, mensagens confusas, passos em que a pessoa travou lendo só a documentação. **Pronto quando:** ao menos duas pessoas externas completam instalação, pareamento, vínculo e uma abertura por voz usando só a documentação. As intents completas (status, aprovar, ditado) dependem do porte do Lambda (trilha seguinte).
+Falhas de reconhecimento (sotaque, nomes de projeto), tempo de resposta, mensagens confusas, passos em que a pessoa travou lendo só a documentação. **Pronto quando:** ao menos duas pessoas externas completam instalação, pareamento, vínculo e uma abertura por voz usando só a documentação. As intents completas (status, pendências, aprovar com PIN, modo, projetos, pedir tarefa, ditado confirmado, resposta livre, criar projeto) já funcionam no modo compartilhado (ADRs 0044 e 0045); teste cada uma por voz e compare com o comportamento da skill do dono.

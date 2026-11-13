@@ -44,3 +44,7 @@ O modo `auto` aprova tudo, sem PIN e sem expiração (ADR 0002). A mitigação �
 ## Relay (multiusuário, opcional)
 
 Para quem usa o relay em vez de túnel próprio: `heycode pair CÓDIGO --relay https://...` pareia este computador (confira o código de verificação nos dois lados) e `heycode connect` mantém a conexão de saída, reconectando sozinho. Se o relay cair, os agentes seguem normais. Operação do serviço, incidentes e restauração: `infra/README.md` e `docs/runbooks/`. O caminho do dono (Lambda e `ponte.`) não muda.
+
+### Modo automático por voz no modo compartilhado
+
+Por padrão a skill compartilhada **não** consegue ligar o modo `auto`. Para permitir, no próprio computador: `heycode relay-auto on` (pede confirmação; `--yes` pula) e `heycode relay-auto off` para bloquear de novo. A mudança vale na hora, sem reiniciar o `heycode connect`. O modo `auto` aprova tudo sem PIN e sem expiração (ADR 0002).

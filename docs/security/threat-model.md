@@ -50,6 +50,12 @@ Outra conta de usuário; operador ou invasor do relay; dispositivo de voz roubad
 | Conta B aprova ou usa dispositivo de A | tudo filtrado por conta | `test_so_a_conta_dona_aprova_o_dispositivo`, `test_dispositivo_aprovado_para_a_nao_vale_para_b` |
 | Roteamento ambíguo entre máquinas | nunca adivinha: pede escolha; padrão só da própria conta | `test_varias_instalacoes_sem_padrao_pedem_escolha_e_com_padrao_roteiam`, `test_instalacao_padrao_de_outra_conta_recusada` |
 | Dados que sobram depois da exclusão (LGPD) | exclusão apaga tudo e derruba conexões e tokens | `test_apagar_conta_remove_tudo_e_invalida_tokens`, `test_apagar_conta_derruba_a_conexao_ativa` |
+| Relay (ou bug) pede à máquina uma rota que a voz nunca usou | executor local com lista fechada de (método, caminho) e consulta restrita; nada fora dela toca a ponte | `test_qualquer_rota_fora_da_lista_e_recusada_sem_tocar_a_ponte`, `test_consulta_com_chave_nao_permitida_recusada`, `test_lista_permitida_e_exatamente_a_do_lambda` |
+| Modo `auto` ligado só por voz no modo compartilhado | `mode: auto` só passa com `auto_allowed` ligado no computador (`heycode relay-auto on`) | `test_auto_so_passa_se_ligado_no_computador`, `test_auto_com_variacao_de_escrita_tambem_e_barrado`, `test_auto_por_voz_e_barrado_ate_o_dono_liberar_no_computador` |
+| Segredo de controle da ponte vaza para o relay | o segredo só é lido no computador; o relay envia método e caminho lógicos | `test_segredo_nunca_aparece_no_resultado`, `test_status_vai_da_alexa_ate_a_ponte_e_volta_com_a_fala` |
+| Confirmação antiga vale para outro destino depois de trocar de projeto | atributos de sessão `block_prior_confirmation` e `free_answer` herdados do Lambda | `test_confirmacao_antiga_e_rejeitada_depois_de_trocar_de_projeto`, `test_selecionar_projeto_guarda_na_sessao_e_bloqueia_confirmacao_antiga` |
+| Aprovação sem ler o pedido | decisão atada ao `approval_id` lido em voz alta na mesma sessão | `test_aprovar_sem_pendencia_lida_nao_chama_o_computador`, `test_fluxo_de_aprovacao_usa_a_sessao_da_alexa_e_o_pedido_lido_em_voz_alta` |
+| Cota estourada por intents que chamam a máquina | cada chamada à ponte conta na cota diária | `test_cota_diaria_conta_pedidos_e_zera_no_dia_seguinte` |
 | Relay comprometido forja pedidos à máquina | **risco aceito no MVP** (quadros do relay sem assinatura, ADR 0038); mitigação na P6 | n/a |
 
 ## Riscos aceitos e lacunas
@@ -58,3 +64,4 @@ Outra conta de usuário; operador ou invasor do relay; dispositivo de voz roubad
 - Mascaramento por padrões não pega todo segredo (heurístico); permanece a regra de nunca ler saída em voz sem resumo.
 - Perda da chave privada exige novo pareamento.
 - A persistência de contas, vínculos e revogações no relay (Postgres, retenção, exclusão LGPD) e o endpoint HTTPS da skill pertencem à P3 e à P4; este documento será estendido por esses ADRs (G10).
+- **PIN em trânsito (modo compartilhado):** o PIN falado passa pelo relay até a máquina, onde a ponte o verifica; o relay não o registra nem guarda (a resposta é entregue e esquecida), mas um relay comprometido poderia vê-lo. Risco aceito e documentado; mitigação futura: PIN com desafio.
