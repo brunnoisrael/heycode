@@ -1,6 +1,6 @@
 # HeyCode: contratos e segurança multiusuário
 
-Data: 2026-11-13. Status: Rascunho (aguarda revisão e aprovação do dono; sem aprovação, nenhuma tarefa de código da P2 começa).
+Data: 2026-11-13. Status: Aprovada pelo dono em 2026-11-13 ("faça as decisões mais recomendadas para a experiência do usuário e eu estou já pré aprovando"; registrado pelo agente a pedido expresso).
 
 Visão: `docs/ROADMAP-HEYCODE.md`. Programa: `docs/superpowers/plans/2026-11-13-heycode-publicavel-e-esteira-de-agentes.md` (trilha P2). Esteira: `docs/superpowers/specs/2026-11-13-esteira-obrigatoria-de-agentes.md`. Base: `docs/superpowers/specs/2026-11-13-heycode-instalavel.md` (P1).
 
@@ -77,11 +77,11 @@ Ameaças mínimas que viram teste:
 
 Protocolo e versionamento; identidade por instalação (Ed25519, anti-replay); `auto` multiusuário; contrato de adaptador; endpoint da skill (Lambda ou HTTPS próprio, decisão 4 do programa).
 
-## 9. Decisões que dependem do dono
+## 9. Decisões (delegadas pelo dono, escolhidas pela experiência do usuário)
 
-1. `auto` multiusuário: aceitar a proposta do §5 (opt-in por instalação, confirmado no computador)?
-2. Endpoint da skill: manter a Lambda ou HTTPS próprio no relay?
-3. Janelas numéricas (5 min de pareamento, 10 min de replay, ±2 min de relógio): aceitar ou ajustar?
+1. **`auto` multiusuário: aceita a proposta do §5.** Opt-in por instalação, ligado e confirmado no computador, nunca só por voz na primeira vez. Depois de ligado, a pessoa usa `auto` por voz sem atrito. Custo se errado: um passo único a mais na primeira ativação.
+2. **Endpoint da skill: HTTPS próprio no relay** (um salto, menor latência, nada para a pessoa configurar na AWS). A Lambda atual com allowlist continua só para o caminho do dono até o beta validar o novo. Custo se errado: operar o endpoint e o certificado.
+3. **Janelas aceitas como propostas:** 5 min de pareamento, 10 min de replay, ±2 min de relógio. Custo se errado: ajuste de constante e de teste.
 
 ## 10. Riscos
 
