@@ -153,3 +153,14 @@ def test_logout_invalida_o_token(client):
     auth = signup(client, "a@exemplo.com")
     assert client.post("/v1/logout", headers=auth).status_code == 204
     assert client.get("/v1/installations", headers=auth).status_code == 401
+
+
+def test_conta_lista_so_os_pareamentos_pendentes_dela(client):
+    a = signup(client, "a@exemplo.com")
+    b = signup(client, "b@exemplo.com")
+    code = client.post("/v1/pair/codes", headers=a).json()["code"]
+    red = client.post("/v1/pair/redeem", json={"code": code, "public_key": "pub-1", "name": "meu-note"}).json()
+    lista_a = client.get("/v1/pair/pending", headers=a).json()
+    assert lista_a == [{"pending_id": red["pending_id"], "verification": red["verification"], "name": "meu-note"}]
+    assert client.get("/v1/pair/pending", headers=b).json() == []
+    assert client.get("/v1/pair/pending").status_code == 401

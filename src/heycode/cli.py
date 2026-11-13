@@ -26,6 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     rot.add_argument("--control", action="store_true", help="rotaciona o segredo de controle (Lambda)")
     doctor = sub.add_parser("doctor", help="diagnóstico por camada (sai com 1 se houver falha)")
     doctor.add_argument("--json", action="store_true", help="saída em JSON")
+    pair = sub.add_parser("pair", help="pareia este computador a uma conta do relay HeyCode")
+    pair.add_argument("code", help="código de 8 caracteres emitido pelo app do relay")
+    pair.add_argument("--relay", required=True, metavar="URL", help="endereço do relay (https://...)")
+    pair.add_argument("--name", default=None, help="nome deste computador (padrão: nome da máquina)")
+    pair.add_argument("--yes", action="store_true", help="não pergunta se o código de verificação confere")
+    pair.add_argument("--force", action="store_true", help="gera uma identidade nova mesmo se já existir uma")
+    sub.add_parser("connect", help="mantém a conexão de saída com o relay (reconecta sozinho)")
     sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
 
@@ -92,6 +99,79 @@ def _cmd_rotate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_pair(args: argparse.Namespace) -> int:
+    import platform
+
+    import httpx
+
+    from heycode import paths, relay_client
+
+    def confirm(verification: str) -> bool:
+        print(f"Código de verificação: {verification}")
+        print("Confira que o app do relay mostra o mesmo código.")
+        if args.yes:
+            return True
+        return input("O código confere? [s/N] ").strip().lower() in ("s", "sim", "y", "yes")
+
+    try:
+        iid = relay_client.pair_with_relay(
+            args.relay,
+            args.code.strip().upper(),
+            args.name or platform.node() or "computador",
+            paths.home(),
+            http=httpx,
+            confirm=confirm,
+            force=args.force,
+        )
+    except (relay_client.PairingError, httpx.HTTPError, ValueError) as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    print(f"Pareado. Instalação {iid}. Rode `heycode connect` para manter a conexão com o relay.")
+    return 0
+
+
+def make_instruction_handler(store):
+    """Tratador padrao: enfileira a instrucao para o agente aberto (mesma fila do ADR 0018)."""
+
+    async def handler(payload: dict) -> dict:
+        store.add_instruction(
+            str(payload["text"]), agent=str(payload.get("agent") or "claude"), project=payload.get("destination")
+        )
+        return {"run_id": "0", "state": "done", "summary": "instrucao enfileirada para o agente"}
+
+    return handler
+
+
+def _cmd_connect(args: argparse.Namespace) -> int:
+    import asyncio
+
+    from heycode import paths, relay_client
+    from heycode.identity.keys import load_private_key
+    from heycode.store.db import Store
+
+    home = paths.home()
+    cfg = relay_client.load_relay_config(home)
+    if cfg is None:
+        print("Este computador ainda não foi pareado. Rode: heycode pair CÓDIGO --relay URL", file=sys.stderr)
+        return 1
+    try:
+        client = relay_client.RelayClient(
+            relay_client.ws_url(cfg["relay_url"]),
+            cfg["installation_id"],
+            load_private_key(home),
+            make_instruction_handler(Store(str(paths.db_path()))),
+        )
+    except (ValueError, OSError) as exc:
+        print(f"Erro: {exc}", file=sys.stderr)
+        return 1
+    print(f"Conectando ao relay {cfg['relay_url']} (Ctrl+C para sair)...")
+    try:
+        asyncio.run(client.run_forever())
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def _cmd_doctor(args: argparse.Namespace) -> int:
     import json
     import os
@@ -151,6 +231,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     if args.command in ("install-service", "uninstall-service"):
         return _cmd_service(args)
+    if args.command == "pair":
+        return _cmd_pair(args)
+    if args.command == "connect":
+        return _cmd_connect(args)
     if args.command == "doctor":
         return _cmd_doctor(args)
     if args.command == "rotate-secret":

@@ -17,6 +17,7 @@ dependencies = [
   "jsonschema>=4.26,<5",
   "cryptography>=46,<47",
   "argon2-cffi>=25,<26",
+  "websockets>=15,<17",
 ]
 
 [project.scripts]

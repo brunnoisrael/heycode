@@ -61,6 +61,10 @@ class PairingService:
         self._pending[pending.id] = pending
         return pending
 
+    def pending_for(self, account_id: str) -> list[Pending]:
+        now = self._clock()
+        return [p for p in self._pending.values() if p.account_id == account_id and p.expires_at >= now]
+
     def get_pending(self, pending_id: str) -> Pending | None:
         pending = self._pending.get(pending_id)
         if pending is not None and pending.expires_at < self._clock():

@@ -118,6 +118,13 @@ def create_app(
         names[pending.id] = body.name[:64]
         return {"pending_id": pending.id, "verification": pending.verification}
 
+    @app.get("/v1/pair/pending")
+    def pending_pairings(account_id: str = Depends(current_account)) -> list[dict]:
+        return [
+            {"pending_id": p.id, "verification": p.verification, "name": names.get(p.id, "computador")}
+            for p in pairing.pending_for(account_id)
+        ]
+
     @app.get("/v1/pair/{pending_id}/verification")
     def verification(pending_id: str, account_id: str = Depends(current_account)) -> dict:
         pending = pairing.get_pending(pending_id)
