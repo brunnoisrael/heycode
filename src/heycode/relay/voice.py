@@ -17,7 +17,13 @@ Call = Callable[..., Awaitable[dict]]
 
 
 class BridgeUnavailable(Exception):
-    """Computador offline, sem resposta no prazo, cota estourada ou erro da ponte."""
+    """Computador offline, sem resposta no prazo, cota estourada ou erro da ponte.
+
+    `speech` opcional: fala especifica (offline, cota); sem ela vale a frase unica FAIL_SPEECH."""
+
+    def __init__(self, message: str = "", speech: str | None = None) -> None:
+        super().__init__(message)
+        self.speech = speech
 
 
 class Reply:
@@ -381,6 +387,6 @@ async def handle(data: dict, call: Call) -> dict:
         return {"version": "1.0", "response": {}}
     try:
         reply = await _pick(r)(r, call)
-    except BridgeUnavailable:
-        return Reply(FAIL_SPEECH).build(r.attrs)
+    except BridgeUnavailable as exc:
+        return Reply(exc.speech or FAIL_SPEECH).build(r.attrs)
     return reply.build(r.attrs)

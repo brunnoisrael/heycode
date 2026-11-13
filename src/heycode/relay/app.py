@@ -23,6 +23,8 @@ from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
 from heycode.relay.limits import RateLimiter, day_key
 from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
+from heycode.relay.voice import BridgeUnavailable
+from heycode.relay.voice import handle as handle_voice
 
 __all__ = ["OAuthConfig", "create_app"]
 
@@ -359,21 +361,34 @@ def create_app(
             return JSONResponse(
                 _say("Este dispositivo ainda nao foi autorizado. Autorize-o no aplicativo do HeyCode e tente de novo.")
             )
-        if req.get("type") == "IntentRequest":
-            name = (req.get("intent") or {}).get("name", "")
-            if name == "AMAZON.HelpIntent":
-                return JSONResponse(
-                    _say(
-                        "O HeyCode conecta a Alexa aos seus agentes de codigo. Diga abrir o HeyCode para ver o estado.",
-                        end=False,
-                    )
-                )
-            if name in ("AMAZON.StopIntent", "AMAZON.CancelIntent", "AMAZON.NavigateHomeIntent"):
-                return JSONResponse(_say("Ate logo."))
-            return JSONResponse(_say("Esse comando ainda nao esta disponivel no modo compartilhado."))
-        if hub.is_online(inst["id"]):
-            return JSONResponse(_say(f"HeyCode conectado ao computador {inst['name']}.", end=False))
-        return JSONResponse(_say(f"O computador {inst['name']} esta offline."))
+        if req.get("type") == "LaunchRequest" and not hub.is_online(inst["id"]):
+            return JSONResponse(_say(f"O computador {inst['name']} esta offline."))
+
+        async def call(method: str, path: str, body: dict | None = None) -> dict:
+            """Chama a ponte do computador pelo canal assinado; falhas viram BridgeUnavailable."""
+            if repo.bump_usage(account_id, day_key(clock())) > daily_quota:
+                raise BridgeUnavailable("cota", speech="Voce atingiu o limite diario de pedidos. Tente amanha.")
+            payload: dict = {"method": method, "path": path}
+            if body is not None:
+                payload["body"] = body
+            envelope = frame("bridge-call", inst["id"], payload)
+            state, result = await hub.request(inst["id"], account_id, envelope, sync_timeout)
+            if state == "offline":
+                raise BridgeUnavailable("offline", speech=f"O computador {inst['name']} esta offline.")
+            if state != "done" or not isinstance(result, dict) or not isinstance(result.get("body"), dict):
+                raise BridgeUnavailable(state)
+            status = result.get("status")
+            if status == 403 and result["body"].get("speech"):  # recusa explicada pelo computador (auto, etc.)
+                return result["body"]
+            if not isinstance(status, int) or status >= 400:
+                raise BridgeUnavailable(f"ponte respondeu {status}")
+            return result["body"]
+
+        answer = await handle_voice(data, call)
+        if req.get("type") == "LaunchRequest":
+            spoken = answer["response"]["outputSpeech"]["text"]
+            answer["response"]["outputSpeech"]["text"] = f"HeyCode conectado ao computador {inst['name']}. {spoken}"
+        return JSONResponse(answer)
 
     # --- conexao da maquina e endpoint da skill (pedidos autenticados) ---
 

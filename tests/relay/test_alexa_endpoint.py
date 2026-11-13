@@ -256,13 +256,24 @@ def _aprovada(world):
     return c, env, clock, tok
 
 
-def test_ajuda_parar_e_intents_ainda_nao_suportadas(world):
-    c, env, clock, tok = _aprovada(world)
-    assert "HeyCode" in speech(alexa(c, env, clock, token=tok, intent="AMAZON.HelpIntent"))
+def test_ajuda_parar_e_fallback_respondem_sem_precisar_do_computador(world):
+    c, env, clock, tok = _aprovada(world)  # computador offline: estas intents nao dependem dele
+    assert speech(alexa(c, env, clock, token=tok, intent="AMAZON.HelpIntent")).startswith("Você pode listar projetos")
     stop = alexa(c, env, clock, token=tok, intent="AMAZON.StopIntent")
-    assert stop.json()["response"]["shouldEndSession"] is True
-    nao = alexa(c, env, clock, token=tok, intent="ApproveIntent")
-    assert "ainda" in speech(nao) and nao.json()["response"]["shouldEndSession"] is True
+    assert speech(stop) == "Até já." and stop.json()["response"]["shouldEndSession"] is True
+    assert speech(alexa(c, env, clock, token=tok, intent="IntentQueNaoExiste")).startswith("Não entendi")
+
+
+def test_aprovar_sem_pendencia_lida_nao_chama_o_computador(world):
+    c, env, clock, tok = _aprovada(world)
+    out = alexa(c, env, clock, token=tok, intent="ApproveIntent")
+    assert speech(out) == "Pergunte primeiro o que está pendente."
+
+
+def test_intent_que_precisa_do_computador_offline_diz_que_esta_offline(world):
+    c, env, clock, tok = _aprovada(world)
+    out = alexa(c, env, clock, token=tok, intent="StatusIntent")
+    assert "offline" in speech(out) and out.json()["response"]["shouldEndSession"] is True
 
 
 def test_fim_de_sessao_responde_vazio(world):
