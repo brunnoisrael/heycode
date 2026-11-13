@@ -1,6 +1,6 @@
 # Esteira obrigatória de agentes: spec
 
-Data: 2026-11-13. Status: rascunho aguardando aprovação do dono.
+Data: 2026-11-13. Status: aprovada pelo dono em 2026-11-13 (dono longe do computador, autorizou o agente a registrar a aprovação: "pode aprovar pra mim e segue pra o restante"; "mas eu permito, estou longe").
 
 Plano de programa: `docs/superpowers/plans/2026-11-13-heycode-publicavel-e-esteira-de-agentes.md` (trilha P0). Visão: `docs/ROADMAP-HEYCODE.md`.
 
