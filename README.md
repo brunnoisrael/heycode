@@ -74,6 +74,7 @@ Gates obrigatórios, aplicados por hooks do git (`git config core.hooksPath .git
 3. **Commits locais** pequenos, com testes (`python -m pytest`, `cd skill/lambda && npm test`).
 
 Regras para agentes em [AGENTS.md](AGENTS.md). Decisões em [docs/adr/](docs/adr/).
+Visão de produto e próximos marcos em [docs/ROADMAP-HEYCODE.md](docs/ROADMAP-HEYCODE.md).
 
 ## Ideias de evolução
 
