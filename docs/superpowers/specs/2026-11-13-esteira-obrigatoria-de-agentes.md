@@ -65,8 +65,13 @@ Definido em `docs/SDLC.md` (12 etapas, Definição de pronto). Esta spec torna o
 
 1. Aprovar esta spec (mudar o `Status` acima).
 2. Decidir sobre `2026-11-09-alexa-agent-hub-design.md`, ainda `rascunho aguardando aprovação` apesar de ter sido implementada: com G2, nenhum commit novo pode citá-la como `Spec:` até ela ser aprovada formalmente. As specs `2026-11-09-spike-codex-aider.md` e `2026-11-10-revisao-final.md` não têm campo de status e passam pela mesma decisão.
-3. Criar a organização e o repositório no GitHub, escolher a licença e configurar o ruleset de `main` (P0.6). Publicar é externo e difícil de reverter.
-4. Confirmar quem são os humanos donos dos caminhos protegidos (mínimo dois).
+3. Criar o repositório no GitHub (conta pessoal do dono), escolher a licença e configurar o ruleset de `main` (P0.6). Publicar é externo e difícil de reverter.
+4. Confirmar quem são os humanos donos dos caminhos protegidos: o dono e pelo menos uma pessoa de confiança como colaboradora administradora.
+
+### Revisão de 2026-11-13 (aprovada pelo dono na sessão: "pode, manda bala")
+
+- O repositório começa na **conta pessoal do dono**, não em organização. Repositório pessoal tem um só owner, então "dois owners" vira "dono mais uma colaboradora administradora" (registrador do domínio incluído). Transferir para uma organização é o caminho quando entrar o primeiro mantenedor externo; por isso nomes de pacote, URLs e docs não usam o nome de usuário e preferem `heycode` e `heycode.dev.br`.
+- **Agentes usam identidade separada** (conta-robô ou GitHub App, token com escopo mínimo, restrito a este repositório). Se agente e dono usassem o mesmo usuário, o GitHub não deixaria o dono aprovar o próprio PR e a saída seria abrir exceção no ruleset, o que enfraqueceria o G11. O robô abre PR e não faz merge em caminhos protegidos.
 
 ## 7. Fora do escopo
 

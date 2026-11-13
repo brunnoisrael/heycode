@@ -206,7 +206,7 @@ O domínio e o DNS são a menor parte. Para a comunidade só instalar o MCP e a 
 **Interfaces:**
 - Consumes: `protected_paths` e `human_review_paths` de `gates.json` (CODEOWNERS espelha as mesmas listas; um teste garante que não divergem).
 
-- [ ] **Step 1:** **Ação do dono (publicação é externa e difícil de reverter):** criar a organização e o repositório no GitHub com dois owners, e escolher a licença (decisão 1).
+- [ ] **Step 1:** **Ação do dono (publicação é externa e difícil de reverter):** criar o repositório na conta pessoal do dono, adicionar uma colaboradora administradora de confiança, criar a identidade separada dos agentes (conta-robô ou GitHub App, token de escopo mínimo) e escolher a licença (decisão 1). Ver "Revisão de 2026-11-13" na spec.
 - [ ] **Step 2:** Configurar ruleset em `main`: PR obrigatório, checks de G1–G16 obrigatórios, histórico linear, sem force push, revisão obrigatória dos CODEOWNERS, commits assinados, aprovações antigas descartadas a cada novo push.
 - [ ] **Step 3:** Teste `test_codeowners_espelha_gates_json` em `tests/gates/`; rodar e esperar PASS.
 - [ ] **Step 4:** Antes do primeiro push público, rodar o gitleaks sobre **todo o histórico** e confirmar que não há segredo nos 46 commits atuais nem em `bridge/bridge.db`/`.env` versionados.
