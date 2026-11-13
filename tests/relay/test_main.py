@@ -21,3 +21,19 @@ def test_cotas_podem_ser_ajustadas_por_ambiente(tmp_path):
     assert TestClient(app).get("/health").status_code == 200
     with pytest.raises(ValueError):
         build_app({"RELAY_DB": str(tmp_path / "r2.db"), "RELAY_DAILY_QUOTA": "muitas"})
+
+
+def test_oauth_so_liga_com_cliente_segredo_e_redirects(tmp_path):
+    base = {"RELAY_DB": str(tmp_path / "r.db")}
+    with pytest.raises(RuntimeError):
+        build_app({**base, "OAUTH_CLIENT_ID": "x"})
+    app = build_app(
+        {
+            **base,
+            "OAUTH_CLIENT_ID": "x",
+            "OAUTH_CLIENT_SECRET": "y",
+            "OAUTH_REDIRECT_URIS": "https://a.example/cb, https://b.example/cb",
+        }
+    )
+    r = TestClient(app).get("/oauth/authorize", params={"client_id": "x", "redirect_uri": "https://b.example/cb"})
+    assert r.status_code == 200

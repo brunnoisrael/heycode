@@ -1,8 +1,13 @@
 """Aplicacao HTTP do relay (spec P3). A autoridade de conta vem do token de sessao, nunca do corpo."""
 
+import base64
+import binascii
+import html
 from collections.abc import Callable
+from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Response, WebSocket
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from starlette.websockets import WebSocketDisconnect
 
@@ -15,6 +20,9 @@ from heycode.protocol.outbound import uuid7
 from heycode.relay.accounts import AccountError, Accounts
 from heycode.relay.hub import Hub
 from heycode.relay.limits import RateLimiter, day_key
+from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
+
+__all__ = ["OAuthConfig", "create_app"]
 
 MAX_INSTALLATIONS = 2
 DAILY_QUOTA = 200
@@ -50,11 +58,13 @@ def create_app(
     *,
     sync_timeout: float = SYNC_TIMEOUT,
     daily_quota: int = DAILY_QUOTA,
+    oauth: OAuthConfig | None = None,
 ) -> FastAPI:
     app = FastAPI(title="HeyCode relay")
     accounts = Accounts(repo, clock)
     pairing = PairingService(clock)
     hub = Hub()
+    oauth_server = OAuthServer(repo, accounts, clock, oauth) if oauth else None
     replay = ReplayWindow()
     login_limiter = RateLimiter(clock, limit=10, window=60.0)
     names: dict[str, str] = {}
@@ -65,6 +75,8 @@ def create_app(
     def current_account(authorization: str | None = Header(default=None)) -> str:
         token = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else None
         account_id = accounts.authenticate(token)
+        if account_id is None and oauth_server is not None:
+            account_id = oauth_server.authenticate_access(token)  # token do account linking da Alexa
         if account_id is None:
             raise HTTPException(401, "nao autenticado")
         return account_id
@@ -169,6 +181,71 @@ def create_app(
             raise HTTPException(404, "nao encontrado")
         await hub.disconnect(installation_id)
         return Response(status_code=204)
+
+    # --- account linking (ADR 0041) ---
+
+    def _form_html(params: dict, error: str = "") -> str:
+        hidden = "".join(
+            f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v, quote=True)}">'
+            for k, v in params.items()
+        )
+        msg = f"<p>{html.escape(error)}</p>" if error else ""
+        return (
+            "<!doctype html><html lang='pt-BR'><meta charset='utf-8'><title>Vincular HeyCode</title>"
+            "<h1>Vincular a Alexa ao HeyCode</h1>" + msg + "<form method='post' action='/oauth/authorize'>"
+            "<label>E-mail <input type='email' name='email' required></label>"
+            "<label>Senha <input type='password' name='password' required></label>"
+            + hidden
+            + "<button type='submit'>Vincular</button></form></html>"
+        )
+
+    _OAUTH_PARAMS = ("client_id", "redirect_uri", "state", "response_type", "code_challenge", "code_challenge_method")
+
+    def _need_oauth() -> OAuthServer:
+        if oauth_server is None:
+            raise HTTPException(404, "oauth nao configurado")
+        return oauth_server
+
+    @app.get("/oauth/authorize")
+    def oauth_authorize_form(request: Request) -> Response:
+        server = _need_oauth()
+        params = {k: request.query_params.get(k, "") for k in _OAUTH_PARAMS if request.query_params.get(k)}
+        if not server.valid_client_redirect(params.get("client_id", ""), params.get("redirect_uri", "")):
+            return HTMLResponse("Pedido de vinculacao invalido.", status_code=400)
+        return HTMLResponse(_form_html(params))
+
+    @app.post("/oauth/authorize")
+    async def oauth_authorize(request: Request) -> Response:
+        server = _need_oauth()
+        source = request.client.host if request.client else "desconhecida"
+        if not login_limiter.allow(source):
+            return HTMLResponse("Muitas tentativas. Tente de novo em instantes.", status_code=429)
+        form = {k: v[0] for k, v in parse_qs((await request.body()).decode("utf-8", "replace")).items()}
+        params = {k: form[k] for k in _OAUTH_PARAMS if form.get(k)}
+        try:
+            location = server.authorize(form.get("email", ""), form.get("password", ""), params)
+        except OAuthError:
+            return HTMLResponse("Pedido de vinculacao invalido.", status_code=400)  # nunca redireciona
+        except AccountError:
+            return HTMLResponse(_form_html(params, "E-mail ou senha incorretos."), status_code=401)
+        return Response(status_code=302, headers={"Location": location})
+
+    @app.post("/oauth/token")
+    async def oauth_token(request: Request) -> Response:
+        server = _need_oauth()
+        form = {k: v[0] for k, v in parse_qs((await request.body()).decode("utf-8", "replace")).items()}
+        basic = None
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("basic "):
+            try:
+                cid, _, secret = base64.b64decode(auth[6:]).decode().partition(":")
+                basic = (cid, secret)
+            except (binascii.Error, UnicodeDecodeError):
+                basic = ("", "")
+        try:
+            return JSONResponse(server.token(form, basic), headers={"Cache-Control": "no-store"})
+        except OAuthError as exc:
+            return JSONResponse({"error": exc.code}, status_code=exc.status)
 
     # --- conexao da maquina e endpoint da skill ---
 

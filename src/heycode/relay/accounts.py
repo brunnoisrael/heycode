@@ -41,7 +41,8 @@ class Accounts:
             raise AccountError("email_taken", "e-mail ja cadastrado")
         return aid
 
-    def login(self, email: str, password: str) -> str:
+    def check_credentials(self, email: str, password: str) -> str:
+        """Id da conta se e-mail e senha conferem; mesma falha e mesmo custo nos dois erros."""
         account = self._repo.get_account_by_email(email.strip().lower())
         stored = account["password_hash"] if account else self._dummy  # tempo parecido nos dois casos
         try:
@@ -51,8 +52,12 @@ class Accounts:
             ok = False
         if not ok:
             raise AccountError("bad_credentials", "credenciais invalidas")
+        return account["id"]
+
+    def login(self, email: str, password: str) -> str:
+        account_id = self.check_credentials(email, password)
         token = secrets.token_urlsafe(32)
-        self._repo.create_session(_hash_token(token), account["id"], self._clock() + SESSION_TTL)
+        self._repo.create_session(_hash_token(token), account_id, self._clock() + SESSION_TTL)
         return token
 
     def authenticate(self, token: str | None) -> str | None:

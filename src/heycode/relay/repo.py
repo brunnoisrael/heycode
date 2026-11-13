@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS installations (
   id TEXT PRIMARY KEY, account_id TEXT NOT NULL, public_key TEXT NOT NULL, name TEXT NOT NULL,
   created REAL NOT NULL, last_seen REAL, revoked INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code_hash TEXT PRIMARY KEY, account_id TEXT NOT NULL, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL,
+  challenge TEXT, expires REAL NOT NULL);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  token_hash TEXT PRIMARY KEY, kind TEXT NOT NULL, account_id TEXT NOT NULL, client_id TEXT NOT NULL,
+  family TEXT NOT NULL, expires REAL NOT NULL, used INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS usage (
   account_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (account_id, day));
 """
@@ -127,3 +133,56 @@ class SqliteRepository:
                 (account_id, day),
             )
             return self._db.execute("SELECT n FROM usage WHERE account_id=? AND day=?", (account_id, day)).fetchone()[0]
+
+    # OAuth2 (ADR 0041): tudo guardado como hash
+    def put_oauth_code(
+        self, code_hash: str, account_id: str, client_id: str, redirect_uri: str, challenge: str | None, expires: float
+    ) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO oauth_codes VALUES (?,?,?,?,?,?)",
+                (code_hash, account_id, client_id, redirect_uri, challenge, expires),
+            )
+
+    def pop_oauth_code(self, code_hash: str) -> dict | None:
+        """Le e apaga numa so operacao: o codigo vale uma vez."""
+        with self._lock, self._db:
+            row = self._db.execute("SELECT * FROM oauth_codes WHERE code_hash=?", (code_hash,)).fetchone()
+            if row is None:
+                return None
+            self._db.execute("DELETE FROM oauth_codes WHERE code_hash=?", (code_hash,))
+        return dict(row)
+
+    def put_oauth_token(
+        self, token_hash: str, kind: str, account_id: str, client_id: str, family: str, expires: float
+    ) -> None:
+        with self._lock, self._db:
+            self._db.execute(
+                "INSERT INTO oauth_tokens (token_hash, kind, account_id, client_id, family, expires)"
+                " VALUES (?,?,?,?,?,?)",
+                (token_hash, kind, account_id, client_id, family, expires),
+            )
+
+    def get_oauth_token(self, token_hash: str) -> dict | None:
+        with self._lock:
+            row = self._db.execute("SELECT * FROM oauth_tokens WHERE token_hash=?", (token_hash,)).fetchone()
+        return dict(row) if row else None
+
+    def mark_oauth_token_used(self, token_hash: str) -> bool:
+        """True so para quem de fato a marcou (evita duas trocas simultaneas do mesmo refresh)."""
+        with self._lock, self._db:
+            cur = self._db.execute("UPDATE oauth_tokens SET used=1 WHERE token_hash=? AND used=0", (token_hash,))
+        return cur.rowcount == 1
+
+    def revoke_oauth_family(self, family: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM oauth_tokens WHERE family=?", (family,))
+
+    def revoke_oauth_account(self, account_id: str) -> None:
+        with self._lock, self._db:
+            self._db.execute("DELETE FROM oauth_tokens WHERE account_id=?", (account_id,))
+            self._db.execute("DELETE FROM oauth_codes WHERE account_id=?", (account_id,))
+
+    def dump_oauth_hashes(self) -> list[str]:
+        with self._lock:
+            return [r[0] for r in self._db.execute("SELECT token_hash FROM oauth_tokens")]
