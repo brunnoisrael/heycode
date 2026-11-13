@@ -42,6 +42,14 @@ Outra conta de usuário; operador ou invasor do relay; dispositivo de voz roubad
 | Enumeração de contas e força bruta no login | resposta única e limite de 10 tentativas/min por origem | `test_senha_errada_e_email_inexistente_dao_o_mesmo_erro`, `test_login_tem_limite_de_taxa_por_origem` |
 | Custo descontrolado | cota diária por conta | `test_cota_diaria_conta_pedidos_e_zera_no_dia_seguinte` |
 | Segredo em log do relay | o relay não registra corpo de pedidos nem senhas | `test_logs_do_relay_nao_contem_segredo` |
+| Redirecionamento aberto ou código OAuth reaproveitado | `redirect_uri` de lista exata, código de uso único atado a cliente e redirect | `test_redirect_uri_fora_da_lista_nao_redireciona`, `test_codigo_de_uso_unico`, `test_codigo_nao_vale_com_outro_redirect_uri` |
+| Refresh token roubado e reusado | rotação; reuso revoga a família | `test_reuso_de_refresh_revoga_a_familia_inteira` |
+| Requisição forjada fingindo ser a Alexa | URL, certificado, cadeia, assinatura, janela de 150 s e applicationId | `test_assinatura_sobre_outro_corpo_recusada`, `test_cadeia_nao_confiavel_recusada`, `test_application_id_de_outra_skill_recusado` |
+| SSRF pelo cabeçalho do certificado | URL validada antes de qualquer rede | `test_url_do_certificado_invalida_recusada_sem_buscar_nada` |
+| Dispositivo novo aciona a máquina | nada executa até a conta dona aprovar; pendentes com limite | `test_dispositivo_novo_nao_executa_e_vira_solicitacao_pendente`, `test_solicitacoes_pendentes_tem_limite` |
+| Conta B aprova ou usa dispositivo de A | tudo filtrado por conta | `test_so_a_conta_dona_aprova_o_dispositivo`, `test_dispositivo_aprovado_para_a_nao_vale_para_b` |
+| Roteamento ambíguo entre máquinas | nunca adivinha: pede escolha; padrão só da própria conta | `test_varias_instalacoes_sem_padrao_pedem_escolha_e_com_padrao_roteiam`, `test_instalacao_padrao_de_outra_conta_recusada` |
+| Dados que sobram depois da exclusão (LGPD) | exclusão apaga tudo e derruba conexões e tokens | `test_apagar_conta_remove_tudo_e_invalida_tokens`, `test_apagar_conta_derruba_a_conexao_ativa` |
 | Relay comprometido forja pedidos à máquina | **risco aceito no MVP** (quadros do relay sem assinatura, ADR 0038); mitigação na P6 | n/a |
 
 ## Riscos aceitos e lacunas
