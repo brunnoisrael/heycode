@@ -32,6 +32,59 @@ def check_staged(staged: list[tuple[str, str]], config: dict) -> list[str]:
     ]
 
 
+def _matches(path: str, globs: list[str]) -> bool:
+    return any(fnmatch.fnmatch(path, g) for g in globs)
+
+
+def _is_test(path: str, config: dict) -> bool:
+    return _matches(path, config["test_globs"])
+
+
+def _is_code(path: str, config: dict) -> bool:
+    return (
+        _matches(path, config["code_globs"])
+        and not _is_test(path, config)
+        and not _matches(path, config["ignored_code_globs"])
+    )
+
+
+def check_tests_with_code(files: list[str], commit_type: str, config: dict) -> list[str]:
+    """G4: feat/fix que altera codigo de produto precisa alterar teste no mesmo commit."""
+    if commit_type not in ("feat", "fix"):
+        return []
+    code = [f for f in files if _is_code(f, config)]
+    if not code or any(_is_test(f, config) for f in files):
+        return []
+    return ["G4: " + commit_type + " altera codigo sem alterar teste no mesmo commit: " + ", ".join(code)]
+
+
+def check_diff_size(added_by_file: dict[str, int], config: dict) -> list[str]:
+    """G12: limite de linhas adicionadas, excluindo docs, travas e gerados."""
+    counted = sum(n for f, n in added_by_file.items() if not _matches(f, config["size_exclude_globs"]))
+    limit = config["max_added_lines"]
+    if counted <= limit:
+        return []
+    return [f"G12: {counted} linhas adicionadas (limite {limit}, sem docs e travas). Divida em tarefas menores."]
+
+
+def local_warnings(files: list[str], added_by_file: dict[str, int], config: dict) -> list[str]:
+    """G4 e G12 so avisam no hook (o tipo do commit ainda nao existe); o CI bloqueia."""
+    return check_tests_with_code(files, "feat", config) + check_diff_size(added_by_file, config)
+
+
+def _read_added_lines() -> dict[str, int]:
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--numstat", "-z"],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    ).stdout
+    added: dict[str, int] = {}
+    for entry in out.split("\0"):
+        parts = entry.split("\t")
+        if len(parts) == 3 and parts[0].isdigit():
+            added[parts[2]] = int(parts[0])
+    return added
+
+
 def _read_staged() -> list[tuple[str, str]]:
     out = subprocess.run(
         ["git", "diff", "--cached", "--name-status", "-M", "-z"],
@@ -56,7 +109,10 @@ def _read_staged() -> list[tuple[str, str]]:
 
 def main() -> int:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
-    errors = check_staged(_read_staged(), config)
+    staged = _read_staged()
+    errors = check_staged(staged, config)
+    for w in local_warnings([p for s, p in staged if s != "D"], _read_added_lines(), config):
+        print(f"pre-commit (aviso, o CI bloqueia): {w}", file=sys.stderr)
     for e in errors:
         print(f"pre-commit: {e}", file=sys.stderr)
     return 1 if errors else 0

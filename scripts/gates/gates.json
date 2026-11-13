@@ -41,6 +41,10 @@
     "protocol/**",
     "infra/**"
   ],
+  "code_globs": ["bridge/*.py", "src/*.py", "relay/*.py", "scripts/*.py", "skill/lambda/*.js"],
+  "test_globs": ["tests/*", "*/test/*", "*test_*.py", "*.test.js"],
+  "ignored_code_globs": ["*node_modules/*"],
+  "size_exclude_globs": ["docs/*", "*package-lock.json", "*.lock", "*requirements*.txt", "*.db"],
   "max_added_lines": 400,
   "diff_coverage_floor": 90,
   "policy_branch_coverage_floor": 100
