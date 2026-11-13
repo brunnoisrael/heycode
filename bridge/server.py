@@ -39,6 +39,7 @@ from dictation.service import Dictation
 from dictation.routes import make_router as _dictation_router
 from projects.service import ProjectCreator
 from projects.routes import make_router as _projects_router
+from projects.activity import make_router as _activity_router
 
 MIN_SECRET_LEN = 32
 
@@ -557,6 +558,7 @@ def health():
 app.include_router(_runs_router(supervisor, store, auth_control, PROJECTS_ROOT))
 app.include_router(_dictation_router(dictation, auth_control))
 app.include_router(_projects_router(project_creator, dictation, auth_control))
+app.include_router(_activity_router(store, auth_control, PROJECTS_ROOT))
 
 # /mcp: mesma app, credencial propria (Bearer ou x-secret). Montado por ultimo: rotas acima tem precedencia.
 app.mount("/", mcp_mod.SecretAuth(_mcp_dispatch, SECRET))

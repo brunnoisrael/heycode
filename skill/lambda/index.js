@@ -76,6 +76,48 @@ const getApprovalId = h => {
 };
 const NEED_PENDING = 'Pergunte primeiro o que está pendente.';
 
+// O contexto vive somente nos atributos da sessão Alexa, nunca como destino global.
+const selectedProject = h => (h.attributesManager.getSessionAttributes() || {}).selected_project || null;
+
+const Status = {
+  canHandle: h => isIntent(h, 'StatusIntent'),
+  async handle(h) {
+    const project = selectedProject(h);
+    const d = await bridge(project ? `/voice/projects/status?project=${encodeURIComponent(project)}` : '/status');
+    const rb = h.responseBuilder.speak(d.speech);
+    if (project) rb.reprompt('Quer fazer algo nesse projeto?');
+    return rb.getResponse();
+  },
+};
+
+async function listProjects(h, offset) {
+  const d = await bridge(`/voice/projects?offset=${offset}`);
+  const attrs = h.attributesManager.getSessionAttributes() || {};
+  if (Number.isInteger(d.next_offset) && d.next_offset >= 0) attrs.projects_next_offset = d.next_offset;
+  else delete attrs.projects_next_offset;
+  h.attributesManager.setSessionAttributes(attrs);
+  const rb = h.responseBuilder.speak(d.speech);
+  if (d.next_offset != null) rb.reprompt('Diga mais projetos, ou escolha um projeto.');
+  else if (d.projects && d.projects.length) rb.reprompt('Qual projeto quer escolher?');
+  return rb.getResponse();
+}
+
+const ListProjects = {
+  canHandle: h => isIntent(h, 'ListProjectsIntent'),
+  handle: h => listProjects(h, 0),
+};
+
+const MoreProjects = {
+  canHandle: h => isIntent(h, 'MoreProjectsIntent'),
+  handle(h) {
+    const offset = (h.attributesManager.getSessionAttributes() || {}).projects_next_offset;
+    if (!Number.isInteger(offset) || offset < 0)
+      return h.responseBuilder.speak('Não há mais projetos nessa lista. Você pode pedir os projetos ativos.')
+        .reprompt('O que deseja fazer?').getResponse();
+    return listProjects(h, offset);
+  },
+};
+
 const simple = (intentName, path) => ({
   canHandle: h => isIntent(h, intentName),
   async handle(h) {
@@ -184,12 +226,35 @@ function resolveProject(envelope) {
   return id || String(slot.value).trim() || null;
 }
 
+const SelectProject = {
+  canHandle: h => isIntent(h, 'SelectProjectIntent'),
+  async handle(h) {
+    const project = resolveProject(h.requestEnvelope);
+    if (!project)
+      return h.responseBuilder.speak('Qual projeto você quer escolher?').reprompt('Diga o nome do projeto.').getResponse();
+    const d = await bridge(`/voice/projects/resolve?name=${encodeURIComponent(project)}`);
+    const attrs = h.attributesManager.getSessionAttributes() || {};
+    // Uma troca explícita nunca deixa uma resposta de outro fluxo pronta para confirmação.
+    delete attrs.free_answer;
+    delete attrs.ask;
+    // O backend anterior pode ter uma proposta pendente de outra conversa ou destino.
+    attrs.block_prior_confirmation = true;
+    if (d.ok && typeof d.project === 'string' && d.project) attrs.selected_project = d.project;
+    else delete attrs.selected_project;
+    h.attributesManager.setSessionAttributes(attrs);
+    return h.responseBuilder.speak(d.speech).reprompt('O que quer fazer?').getResponse();
+  },
+};
+
 async function dictate(h, agent, text, project) {
   const body = { agent, text };
   if (project) body.project = project;
   const d = await bridge('/dictation', 'POST', body);
   const rb = h.responseBuilder.speak(d.speech);
-  if (d.ok !== false) rb.reprompt('Confirma?');
+  if (d.ok !== false) {
+    setSaved(h, 'block_prior_confirmation', null);
+    rb.reprompt('Confirma?');
+  }
   return rb.getResponse();
 }
 
@@ -248,7 +313,7 @@ const AskAgent = {
     setSaved(h, 'free_answer', null);
     const saved = getSaved(h, 'ask');
     const agent = resolveAgent(h.requestEnvelope) || saved.agent || null;
-    const project = resolveProject(h.requestEnvelope) || saved.project || null;
+    const project = resolveProject(h.requestEnvelope) || saved.project || selectedProject(h);
     const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
     if (!agent) {
       return h.responseBuilder.speak('Diga o agente primeiro. Por exemplo: peça ao claude. Depois eu pergunto a instrução.')
@@ -268,6 +333,11 @@ const SendInstruction = {
   canHandle: h => isIntent(h, 'SendInstructionIntent'),
   async handle(h) {
     setSaved(h, 'free_answer', null);
+    if (selectedProject(h)) {
+      return h.responseBuilder.speak('Ainda não consigo avisar o agente aberto de um projeto específico. '
+        + 'Você pode pedir uma nova tarefa ao agente nesse projeto.')
+        .reprompt('Qual tarefa deseja pedir?').getResponse();
+    }
     const text = String(Alexa.getSlotValue(h.requestEnvelope, 'instrucao') || '').trim();
     if (!text) {
       return h.responseBuilder.speak('Qual é a instrução para o agente aberto?')
@@ -276,7 +346,10 @@ const SendInstruction = {
     // Fila da sessão já aberta (ADR 0018): a ponte escolhe a sessão mais recente; nada de run nova.
     const d = await bridge('/dictation', 'POST', { target: 'aberto', text });
     const rb = h.responseBuilder.speak(d.speech);
-    if (d.ok !== false) rb.reprompt('Confirma?');
+    if (d.ok !== false) {
+      setSaved(h, 'block_prior_confirmation', null);
+      rb.reprompt('Confirma?');
+    }
     return rb.getResponse();
   },
 };
@@ -302,7 +375,10 @@ const CreateProject = {
     setSaved(h, 'create', null);
     const d = await bridge('/projects', 'POST', { name, agent, description });
     const rb = h.responseBuilder.speak(d.speech);
-    if (d.ok !== false) rb.reprompt('Confirma?');
+    if (d.ok !== false) {
+      setSaved(h, 'block_prior_confirmation', null);
+      rb.reprompt('Confirma?');
+    }
     return rb.getResponse();
   },
 };
@@ -314,6 +390,11 @@ const simplePost = (intentName, path) => ({
     return h.responseBuilder.speak(d.speech).getResponse();
   },
 });
+
+const RejectStaleConfirmation = {
+  canHandle: h => isIntent(h, 'ConfirmIntent') && !!(h.attributesManager.getSessionAttributes() || {}).block_prior_confirmation,
+  handle: h => h.responseBuilder.speak('Escolha uma nova tarefa antes de confirmar.').reprompt('O que deseja fazer?').getResponse(),
+};
 
 // Allowlist: só o dono (userId + deviceId). Lida do env a cada requisição.
 class AccessDenied extends Error {
@@ -357,7 +438,7 @@ const DeniedErrors = {
 const Help = {
   canHandle: h => isIntent(h, 'AMAZON.HelpIntent'),
   handle: h => h.responseBuilder
-    .speak('Você pode perguntar o status, se há algo pendente, pedir o resumo, ou aprovar e negar comandos.')
+    .speak('Você pode listar projetos ativos, escolher um projeto, perguntar o status ou pedir uma tarefa a um agente.')
     .reprompt('O que deseja saber?').getResponse(),
 };
 
@@ -386,8 +467,8 @@ const Errors = {
 
 exports.handler = Alexa.SkillBuilders.custom()
   .addRequestInterceptors(AllowlistInterceptor)
-  .addRequestHandlers(Launch, simple('StatusIntent', '/status'), simple('PendingIntent', '/pending'),
+  .addRequestHandlers(Launch, Status, ListProjects, MoreProjects, SelectProject, simple('PendingIntent', '/pending'),
     simple('ResultIntent', '/result'), Approve, Deny, SetMode, ReportOnEnd,
-    AskAgent, SendInstruction, AnswerQuestion, ConfirmAnswer, CancelAnswer, simplePost('CancelRunIntent', '/runs/latest/cancel'), CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
+    AskAgent, SendInstruction, AnswerQuestion, ConfirmAnswer, CancelAnswer, RejectStaleConfirmation, simplePost('CancelRunIntent', '/runs/latest/cancel'), CreateProject, simplePost('ConfirmIntent', '/confirm'), simplePost('CancelDictationIntent', '/cancel'), Help, Stop, Fallback, SessionEnded)
   .addErrorHandlers(DeniedErrors, Errors)
   .lambda();

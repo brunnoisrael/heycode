@@ -207,6 +207,42 @@
             "responder",
             "quero responder"
           ]
+        },
+        {
+          "name": "ListProjectsIntent",
+          "samples": [
+            "quais projetos estão ativos",
+            "quais projetos estão rodando",
+            "liste os projetos ativos",
+            "o que está rodando",
+            "projetos ativos",
+            "meus projetos ativos"
+          ]
+        },
+        {
+          "name": "MoreProjectsIntent",
+          "samples": [
+            "mais projetos",
+            "mais",
+            "próximos projetos",
+            "mais resultados"
+          ]
+        },
+        {
+          "name": "SelectProjectIntent",
+          "slots": [
+            {
+              "name": "projeto",
+              "type": "NOME_PROJETO"
+            }
+          ],
+          "samples": [
+            "escolha o projeto {projeto}",
+            "seleciona o projeto {projeto}",
+            "abra o projeto {projeto}",
+            "usar o projeto {projeto}",
+            "vamos trabalhar no projeto {projeto}"
+          ]
         }
       ],
       "types": [

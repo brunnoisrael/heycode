@@ -34,6 +34,87 @@ function setup(reply = { speech: 'Entendi: x. Confirma?' }) {
   };
 }
 
+test('lista projetos e continua na pagina pedida durante a mesma sessao', async () => {
+  setup({ speech: 'Painel e loja. Quer mais?', projects: [{ project: 'painel' }], next_offset: 3 });
+  const first = await handler(envelope(intent('ListProjectsIntent')), {});
+  assert.strictEqual(calls[0].url, 'http://bridge.test/voice/projects?offset=0');
+  assert.strictEqual(first.sessionAttributes.projects_next_offset, 3);
+  assert.ok(first.response.reprompt);
+  const second = await handler(envelope(intent('MoreProjectsIntent'), first.sessionAttributes), {});
+  assert.strictEqual(calls[1].url, 'http://bridge.test/voice/projects?offset=3');
+  assert.ok(second.response.reprompt);
+});
+
+test('mais projetos sem pagina nao chama a ponte', async () => {
+  setup();
+  const r = await handler(envelope(intent('MoreProjectsIntent'), {}), {});
+  assert.strictEqual(calls.length, 0);
+  assert.match(r.response.outputSpeech.ssml, /Não há mais projetos/);
+});
+
+test('escolha e status usam projeto resolvido e preservam apenas contexto da sessao', async () => {
+  setup({ ok: true, project: 'painel', speech: 'Projeto painel selecionado.' });
+  const selected = await handler(envelope(intent('SelectProjectIntent', { projeto: 'painel' })), {});
+  assert.strictEqual(calls[0].url, 'http://bridge.test/voice/projects/resolve?name=painel');
+  assert.strictEqual(selected.sessionAttributes.selected_project, 'painel');
+  await handler(envelope(intent('StatusIntent'), selected.sessionAttributes), {});
+  assert.strictEqual(calls[1].url, 'http://bridge.test/voice/projects/status?project=painel');
+  await handler(envelope(intent('AskAgentIntent', { agente: 'codex', instrucao: 'rode os testes' }),
+    selected.sessionAttributes), {});
+  assert.deepStrictEqual(JSON.parse(calls[2].opts.body), { agent: 'codex', text: 'rode os testes', project: 'painel' });
+});
+
+test('projeto desconhecido limpa contexto e resposta pendente sem escolher destino anterior', async () => {
+  setup({ ok: false, speech: 'Não encontrei esse projeto.' });
+  const r = await handler(envelope(intent('SelectProjectIntent', { projeto: 'ausente' }),
+    { selected_project: 'painel', free_answer: { approval_id: 2, token: 'abc' } }), {});
+  assert.strictEqual(r.sessionAttributes.selected_project, undefined);
+  assert.strictEqual(r.sessionAttributes.free_answer, undefined);
+  await handler(envelope(intent('ConfirmIntent'), r.sessionAttributes), {});
+  assert.strictEqual(calls.length, 1, 'nao confirma proposta anterior no backend');
+});
+
+test('escolha de projeto invalida contexto de ditado anterior e nova proposta libera confirmacao', async () => {
+  setup({ ok: true, project: 'novo', speech: 'ok' });
+  const chosen = await handler(envelope(intent('SelectProjectIntent', { projeto: 'novo' }),
+    { ask: { agent: 'codex', project: 'antigo' } }), {});
+  assert.strictEqual(chosen.sessionAttributes.ask, undefined);
+  assert.strictEqual(chosen.sessionAttributes.block_prior_confirmation, true);
+  const proposed = await handler(envelope(intent('AskAgentIntent', { agente: 'codex', instrucao: 'ola' }),
+    chosen.sessionAttributes), {});
+  assert.strictEqual(JSON.parse(calls[1].opts.body).project, 'novo');
+  assert.strictEqual(proposed.sessionAttributes.block_prior_confirmation, undefined);
+  await handler(envelope(intent('ConfirmIntent'), proposed.sessionAttributes), {});
+  assert.strictEqual(calls[2].url, 'http://bridge.test/confirm');
+});
+
+test('projeto explicito vence o contexto escolhido e valor enviado e codificado', async () => {
+  setup({ ok: true, project: 'teste', speech: 'ok' });
+  await handler(envelope(intent('SelectProjectIntent', { projeto: 'a & b' })), {});
+  assert.strictEqual(calls[0].url, 'http://bridge.test/voice/projects/resolve?name=a%20%26%20b');
+  await handler(envelope(intent('AskAgentIntent', { agente: 'codex', projeto: 'outro', instrucao: 'status' }),
+    { selected_project: 'painel' }), {});
+  assert.strictEqual(JSON.parse(calls[1].opts.body).project, 'outro');
+});
+
+test('aviso para agente aberto nao ignora projeto escolhido', async () => {
+  setup({ speech: 'ok' });
+  const r = await handler(envelope(intent('SendInstructionIntent', { instrucao: 'rode os testes' }),
+    { selected_project: 'painel' }), {});
+  assert.strictEqual(calls.length, 0);
+  assert.match(r.response.outputSpeech.ssml, /não consigo avisar o agente aberto/);
+});
+
+test('nova resposta aberta confirmada tem precedencia sobre bloqueio de proposta antiga', async () => {
+  setup({ ok: true, speech: 'Resposta enviada.' });
+  await handler(envelope(intent('ConfirmIntent'), {
+    block_prior_confirmation: true,
+    free_answer: { approval_id: 42, token: 'novo' },
+  }), {});
+  assert.strictEqual(calls[0].url, 'http://bridge.test/answer/confirm');
+  assert.deepStrictEqual(JSON.parse(calls[0].opts.body), { approval_id: 42, token: 'novo' });
+});
+
 test('resposta livre pede texto, relê e confirma somente a pergunta ouvida', async () => {
   setup({ ok: true, token: 'abc', speech: 'Entendi: SQLite. Confirma?' });
   const attrs = { pending_kind: 'question', approval_id: 42 };

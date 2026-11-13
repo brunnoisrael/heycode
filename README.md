@@ -23,6 +23,8 @@ Alexa ──skill──▶ túnel HTTPS ──▶ Ponte RoomCode (FastAPI + SQLi
 | "Peça ao Codex no projeto painel para rodar os testes" | Ditado no projeto citado; projeto inexistente é recusado, nunca cai na raiz |
 | "Aviso no fim do ciclo" | Quando o agente termina, ela oferece ler a saída e receber a próxima instrução |
 | "O que está pendente?" / "responder" | Responde a uma pergunta aberta feita pelo agente via MCP, após releitura e confirmação |
+| "Quais projetos estão ativos?" | Lista projetos com execuções em andamento ou atividade recente; diga "mais" para continuar |
+| "Seleciona o projeto painel" / "qual o status?" | Usa o projeto escolhido durante a sessão de voz; novas tarefas usam esse contexto |
 
 ## Modos de política
 

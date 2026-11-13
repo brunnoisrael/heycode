@@ -111,6 +111,17 @@ class Store:
                 "SELECT * FROM sessions ORDER BY updated DESC LIMIT 1").fetchone()
         return dict(row) if row else None
 
+    def activity_snapshot(self, since: float):
+        """Metadados mínimos de execuções ativas e sessões recentes, na mesma leitura serializada."""
+        with self._lock:
+            runs = self._db.execute(
+                "SELECT id, agent, project, status, t_start FROM runs WHERE status='rodando'"
+                " ORDER BY t_start DESC, id DESC").fetchall()
+            sessions = self._db.execute(
+                "SELECT agent, project, status, updated FROM sessions WHERE updated>=?"
+                " ORDER BY updated DESC, session_id", (since,)).fetchall()
+            return [dict(row) for row in runs], [dict(row) for row in sessions]
+
     # aprovacoes
     def add_approval(self, agent, project, tool, command, session_id) -> int:
         with self._lock:

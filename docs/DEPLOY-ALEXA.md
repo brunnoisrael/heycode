@@ -96,13 +96,28 @@ powershell -ExecutionPolicy Bypass -File scripts\uninstall-service.ps1          
 
 ## 7. Tunel nomeado (URL estavel)
 
-O tunel rapido muda de URL a cada execucao. Para uma URL fixa, use um dominio na sua conta Cloudflare:
+O tunel rapido muda de URL a cada execucao. Para um hostname estavel, o dominio precisa estar ativo e delegado na conta Cloudflare do dono. A solicitacao de `heycode.dev.br` nao comprova que ele ja foi registrado ou delegado. Confirme isso no Registro.br e no painel Cloudflare antes de mudar o DNS. A ponte continua escutando somente em loopback.
+
+1. Revise o roteiro (a previa e o padrao; nenhum recurso e criado):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup-named-tunnel.ps1 -Hostname ponte.seudominio.com -DryRun
+powershell -ExecutionPolicy Bypass -File scripts\setup-named-tunnel.ps1 -Hostname ponte.heycode.dev.br
 ```
 
-O roteiro: `cloudflared tunnel login` (login seu no navegador), `tunnel create roomcode`, `tunnel route dns`, `config.yml` em `~\.cloudflared`, `cloudflared service install` (terminal de administrador). O script nunca faz o login por voce: pausa e manda rodar o comando. Depois ajuste `BRIDGE_URL` na Lambda para `https://ponte.seudominio.com` uma unica vez.
+2. Depois de conferir o dominio e o destino `http://127.0.0.1:8765`, faca `cloudflared tunnel login` na conta correta e, se o certificado local estiver disponivel, execute o mesmo comando com `-Apply`. Ele cria tunel e DNS apenas quando nao existe configuracao local nem tunel com o mesmo nome. Se houver falha parcial, revise o estado no painel antes de tentar novamente. Se o tunel for gerenciado remotamente ou ja existir, configure-o pelo processo apropriado da Cloudflare e revise o arquivo de configuracao antes de prosseguir; nao substitua o que ja existe.
+3. Para um tunel com arquivo YAML e credenciais locais ja provisionados, apresente a previa e instale a tarefa de logon do usuario:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1 -ConfigPath "$env:USERPROFILE\.cloudflared\config.yml"
+powershell -ExecutionPolicy Bypass -File scripts\install-tunnel-task.ps1 -ConfigPath "$env:USERPROFILE\.cloudflared\config.yml" -Apply
+powershell -ExecutionPolicy Bypass -File scripts\diagnose-connection.ps1 -Hostname ponte.heycode.dev.br
+```
+
+A tarefa `RoomCodeTunnel` reinicia em falha e nao modifica uma tarefa com outra acao. O arquivo indicado deve conter somente o hostname e o destino revisados; proteja as credenciais locais do tunel. O diagnostico verifica a ponte local, o estado da tarefa, `/health` externo e a recusa de `/status` sem credencial. Para testar `/status` autenticado, defina `BRIDGE_CONTROL_SECRET` no ambiente da sessao e acrescente `-Authenticate`; nunca cole o segredo em argumentos ou logs. O diagnostico nao comprova a Alexa.
+
+4. Depois de confirmar saude externa e autorizacao, ajuste `BRIDGE_URL` na Lambda uma unica vez e faca deploy. Teste com o Echo autorizado; apos reinicio e logon, repita o teste sem atualizar a Lambda. O arquivo `env.json` da skill continua com usuario, dispositivo e segredo de controle existentes.
+
+Para retornar ao tunel rapido, reponha na Lambda sua URL ainda ativa e faca deploy antes de encerrar a tarefa `RoomCodeTunnel`. Nao remova DNS, tunel ou arquivos de credenciais de terceiros. A tarefa e por usuario e depende do logon; a reconexao do conector nao significa que a Alexa esteja funcionando.
 
 ## 8. Rotacao do segredo
 
