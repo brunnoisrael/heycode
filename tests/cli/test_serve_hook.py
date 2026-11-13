@@ -28,7 +28,8 @@ def test_serve_carrega_config_sem_sobrescrever_ambiente(tmp_path, monkeypatch, f
     home.mkdir()
     (home / "config.env").write_text("BRIDGE_SECRET=do-arquivo\nBRIDGE_PIN=1111\n", encoding="utf-8")
     monkeypatch.setenv("HEYCODE_HOME", str(home))
-    monkeypatch.delenv("BRIDGE_SECRET", raising=False)
+    monkeypatch.setenv("BRIDGE_SECRET", "tmp")  # registra o desfazer: apply_env escreve em os.environ
+    monkeypatch.delenv("BRIDGE_SECRET")
     monkeypatch.setenv("BRIDGE_PIN", "9999")
     assert main(["serve", "--port", "18765"]) == 0
     assert os.environ["BRIDGE_SECRET"] == "do-arquivo" and os.environ["BRIDGE_PIN"] == "9999"

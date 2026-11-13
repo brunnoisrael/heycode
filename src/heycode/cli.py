@@ -24,6 +24,8 @@ def build_parser() -> argparse.ArgumentParser:
     rot = sub.add_parser("rotate-secret", help="gera novo segredo com backup (dry-run por padrão)")
     rot.add_argument("--apply", action="store_true", help="executa de verdade")
     rot.add_argument("--control", action="store_true", help="rotaciona o segredo de controle (Lambda)")
+    doctor = sub.add_parser("doctor", help="diagnóstico por camada (sai com 1 se houver falha)")
+    doctor.add_argument("--json", action="store_true", help="saída em JSON")
     sub.add_parser("hook", help="ponto de entrada dos hooks dos agentes: heycode hook [approve] [--agent A]")
     return parser
 
@@ -90,6 +92,27 @@ def _cmd_rotate(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    import json
+    import os
+
+    from heycode import doctor, paths
+
+    checks = doctor.run_checks(dict(os.environ), paths.home())
+    if args.json:
+        print(json.dumps([c.__dict__ for c in checks], ensure_ascii=False, indent=2))
+    else:
+        layer = None
+        for c in checks:
+            if c.layer != layer:
+                layer = c.layer
+                print(chr(10) + layer)
+            print(f"  [{c.status}] {c.name}: {c.detail}")
+            if c.fix and c.status != "ok":
+                print(f"         -> {c.fix}")
+    return 1 if any(c.status == "falha" for c in checks) else 0
+
+
 def _cmd_serve(args: argparse.Namespace) -> int:
     import socket
 
@@ -128,6 +151,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_serve(args)
     if args.command in ("install-service", "uninstall-service"):
         return _cmd_service(args)
+    if args.command == "doctor":
+        return _cmd_doctor(args)
     if args.command == "rotate-secret":
         return _cmd_rotate(args)
     return 0
