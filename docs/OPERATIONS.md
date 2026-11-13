@@ -48,3 +48,12 @@ Para quem usa o relay em vez de túnel próprio: `heycode pair CÓDIGO --relay h
 ### Modo automático por voz no modo compartilhado
 
 Por padrão a skill compartilhada **não** consegue ligar o modo `auto`. Para permitir, no próprio computador: `heycode relay-auto on` (pede confirmação; `--yes` pula) e `heycode relay-auto off` para bloquear de novo. A mudança vale na hora, sem reiniciar o `heycode connect`. O modo `auto` aprova tudo sem PIN e sem expiração (ADR 0002).
+
+## Painel web
+
+O relay serve o painel em `/app` (Computadores, Dispositivos, Rastro, Comandos, Parear, Conta). Pontos de operação:
+
+- **Domínio e TLS:** o cookie de sessão só recebe `Secure` quando o relay vê HTTPS (por isso o `--proxy-headers` do `Dockerfile`, ADR 0040). Sirva o painel somente por HTTPS em domínio próprio.
+- **Reiniciar o relay** invalida o token anti-CSRF de cada sessão: quem estava no painel só precisa recarregar a página.
+- **Atalhos por voz** exigem enviar o modelo de interação atualizado ao console da Amazon (a `RunCommandIntent` é nova, ADR 0050) e podem ser criados, desligados e apagados no painel sem republicar a skill.
+- **Teste de navegador:** `tests/ui` usa Playwright e pula sozinho se ele ou o Chromium faltarem (`pip install playwright && playwright install chromium`). A CSP do painel proíbe `eval`, então os testes esperam por elementos, não por `wait_for_function`.

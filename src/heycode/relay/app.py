@@ -8,6 +8,7 @@ import hmac
 import html
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 from typing import Annotated
 from urllib.parse import parse_qs
 
@@ -39,6 +40,12 @@ SESSION_COOKIE = "hc_session"
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_PENDING_DEVICES = 10
 MAX_SHORTCUTS = 30
+PANEL_DIR = Path(__file__).parent / "panel"
+PANEL_FILES = {"panel.js": "text/javascript; charset=utf-8", "panel.css": "text/css; charset=utf-8"}  # lista fechada
+PANEL_CSP = (
+    "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
+    "font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+)
 SHORTCUT_AGENTS = ("claude", "codex", "aider")
 SYNC_TIMEOUT = 4.0
 CLOSE_UNAUTHORIZED = 4401
@@ -62,6 +69,18 @@ class PendingBody(BaseModel):
 class DeviceBody(BaseModel):
     installation_id: str
     device_id: str
+
+
+class RenameBody(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+
+    @field_validator("name")
+    @classmethod
+    def _strip(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("nome vazio")
+        return v
 
 
 class DefaultInstallationBody(BaseModel):
@@ -295,7 +314,19 @@ def create_app(
 
     @app.get("/v1/installations")
     def list_installations(account_id: str = Depends(current_account)) -> list[dict]:
-        return repo.list_installations(account_id)
+        default = repo.get_default_installation(account_id)
+        return [
+            {**i, "online": hub.is_online(i["id"]), "is_default": i["id"] == default}
+            for i in repo.list_installations(account_id)
+        ]
+
+    @app.patch("/v1/installations/{installation_id}")
+    def rename_installation(installation_id: str, body: RenameBody, account_id: str = Depends(current_account)) -> dict:
+        item = repo.rename_installation(account_id, installation_id, body.name)
+        if item is None:
+            raise HTTPException(404, "nao encontrado")
+        audit(account_id, "painel:renomear_computador", installation_id=installation_id, label=item["name"])
+        return {"id": item["id"], "name": item["name"]}
 
     @app.delete("/v1/installations/{installation_id}", status_code=204)
     async def revoke(installation_id: str, account_id: str = Depends(current_account)) -> Response:
@@ -304,6 +335,23 @@ def create_app(
         audit(account_id, "painel:revogar_computador", installation_id=installation_id)
         await hub.disconnect(installation_id)
         return Response(status_code=204)
+
+    # --- painel web (ADR 0046): arquivos estaticos de lista fechada, com CSP rigida ---
+
+    def _panel_headers() -> dict:
+        return {"Content-Security-Policy": PANEL_CSP, "X-Frame-Options": "DENY"}
+
+    @app.get("/app", include_in_schema=False)
+    def panel_index() -> Response:
+        html = (PANEL_DIR / "index.html").read_bytes()
+        return Response(html, media_type="text/html; charset=utf-8", headers=_panel_headers())
+
+    @app.get("/app/static/{name}", include_in_schema=False)
+    def panel_static(name: str) -> Response:
+        media = PANEL_FILES.get(name)
+        if media is None:
+            raise HTTPException(404, "nao encontrado")
+        return Response((PANEL_DIR / name).read_bytes(), media_type=media, headers=_panel_headers())
 
     # --- account linking (ADR 0041) ---
 

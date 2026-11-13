@@ -117,6 +117,16 @@ class SqliteRepository:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def rename_installation(self, account_id: str, installation_id: str, name: str) -> dict | None:
+        with self._lock, self._db:
+            cur = self._db.execute(
+                "UPDATE installations SET name=? WHERE id=? AND account_id=? AND revoked=0",
+                (name, installation_id, account_id),
+            )
+        if cur.rowcount != 1:
+            return None
+        return self.get_owned_installation(account_id, installation_id)
+
     def get_installation(self, installation_id: str) -> dict | None:
         """Uso interno do relay (autenticacao do envelope); nunca exposto direto a uma conta."""
         with self._lock:
