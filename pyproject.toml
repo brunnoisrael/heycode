@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "heycode"
+version = "0.1.0"
+description = "HeyCode: controle por voz (Alexa) de agentes de código via MCP"
+readme = "README.md"
+requires-python = ">=3.11,<3.15"
+license = { text = "Apache-2.0" }
+dependencies = [
+  "fastapi>=0.135,<1",
+  "uvicorn>=0.42,<1",
+  "httpx>=0.28,<1",
+  "mcp>=1.30,<2",
+]
+
+[project.scripts]
+heycode = "heycode.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/heycode"]

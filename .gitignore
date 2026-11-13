@@ -10,3 +10,6 @@ skill/lambda/env.json
 .coverage
 cov.json
 coverage.json
+dist/
+build/
+*.egg-info/
