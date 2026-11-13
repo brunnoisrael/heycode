@@ -14,6 +14,7 @@ from typing import Literal, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
+from heycode import paths
 from heycode.dictation.routes import make_router as _dictation_router
 from heycode.dictation.service import Dictation
 from heycode.mcp_server import server as mcp_mod
@@ -51,8 +52,8 @@ APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
 OPEN_SESSION_WINDOW = int(os.environ.get("OPEN_SESSION_WINDOW", "1800"))  # s sem evento: a sessao nao conta como aberta
 INSTRUCTION_TTL = int(os.environ.get("INSTRUCTION_TTL", "1800"))  # s: instrucao na fila nao entregue expira
 
-# provisorio ate o diretorio do usuario (P1.4)
-DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
+DB_PATH = str(paths.db_path())  # BRIDGE_DB, senao heycode.db no diretorio do usuario
+os.makedirs(os.path.dirname(DB_PATH) or ".", exist_ok=True)
 DEFAULT_AGENT = "claude"
 
 PROJECTS_ROOT = os.environ.get("PROJECTS_ROOT", os.path.expanduser(os.path.join("~", "Documents", "Projetos")))
