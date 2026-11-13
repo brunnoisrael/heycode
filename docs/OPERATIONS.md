@@ -40,3 +40,7 @@ Cria backup do `config.env` (permissão restrita; apague quando não precisar ma
 ## Segurança em uma linha
 
 O modo `auto` aprova tudo, sem PIN e sem expiração (ADR 0002). A mitigação é a allowlist de usuário e dispositivo do dono na Lambda; não a enfraqueça.
+
+## Relay (multiusuário, opcional)
+
+Para quem usa o relay em vez de túnel próprio: `heycode pair CÓDIGO --relay https://...` pareia este computador (confira o código de verificação nos dois lados) e `heycode connect` mantém a conexão de saída, reconectando sozinho. Se o relay cair, os agentes seguem normais. Operação do serviço, incidentes e restauração: `infra/README.md` e `docs/runbooks/`. O caminho do dono (Lambda e `ponte.`) não muda.
