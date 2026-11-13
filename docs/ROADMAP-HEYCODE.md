@@ -8,6 +8,8 @@ HeyCode é uma Alexa com uma skill que governa o trabalho de agentes de código.
 
 O produto deve ser agnóstico a agentes: Claude Code, Codex, Aider e outros entram por adaptadores e declaram suas capacidades reais. A experiência de voz permanece consistente; o sistema deixa claro quando um agente não suporta uma operação.
 
+O MCP é a interface preferida para conectar agentes ao HeyCode. A skill Alexa e o MCP são produtos distintos: a skill é publicada na loja da Alexa; cada pessoa instala e configura o componente MCP em seu próprio ambiente de desenvolvimento.
+
 Exemplo de um dia de trabalho:
 
 > “Alexa, abra o HeyCode. Quais projetos estão ativos?”
@@ -27,6 +29,20 @@ As frases são metas de experiência. O nome de invocação e o reconhecimento d
 - Túnel nomeado em `ponte.heycode.dev.br`; ponte e túnel iniciam no logon. A confirmação por Echo após a troca de endereço e o teste completo após reinício continuam pendentes.
 - Playwright MCP instalado para o Codex deste usuário como ferramenta de desenvolvimento e validação do HeyCode.
 - Limites atuais: contexto de projeto vive na sessão de voz; algumas confirmações ainda usam pendência global; a lista distingue execução supervisionada de atividade recente e pode mudar entre páginas; adaptadores oferecem capacidades diferentes.
+
+## Direção para distribuição à comunidade
+
+Uma única skill publicada deve atender várias pessoas sem pedir que cada uma crie sua própria skill, configure uma Lambda ou informe manualmente IDs da Amazon. Experiência pretendida:
+
+1. A pessoa instala o HeyCode/MCP no computador e registra o servidor no cliente de agente escolhido, com assistente de instalação e diagnóstico de compatibilidade.
+2. Ativa a skill oficial na loja da Alexa e vincula sua conta HeyCode pelo fluxo de account linking da Amazon.
+3. Pareia o computador à conta usando um código curto, de uso único e com validade limitada, confirmado nos dois lados. Cada instalação possui identidade própria e pode ser revogada.
+4. O componente local estabelece e mantém uma conexão segura de saída para um serviço de conexão do HeyCode. A skill identifica a conta vinculada e encaminha cada pedido à instalação correta. A pessoa escolhe a máquina quando houver mais de uma.
+5. Dispositivos de voz são autorizados por pessoa e instalação, com associação e revogação explícitas. Nunca reutilizar uma allowlist global nem enfraquecer a proteção existente durante a migração.
+
+Esse serviço de conexão é uma proposta arquitetural: precisa de especificação, ADR, isolamento entre usuários, operação, custos, limites de latência e revisão antes de implementação. A alternativa de túneis individuais também será avaliada; o túnel fixo atual pertence à instalação do dono. Uma distribuição comunitária não deve pressupor que cada pessoa compre domínio ou configure Cloudflare. Não é garantido que a infraestrutura compartilhada seja gratuita.
+
+O account linking associa a conta Alexa à conta no serviço; a associação segura da máquina e do dispositivo continua sendo responsabilidade do HeyCode. O MCP dá capacidades aos clientes que o suportam e precisa ser registrado ou configurado em cada cliente: instalar um pacote isoladamente não prova que todos os agentes passaram a usá-lo.
 
 ## Princípios de produto
 
@@ -82,14 +98,15 @@ As frases são metas de experiência. O nome de invocação e o reconhecimento d
 
 **Pronto quando:** usuários conseguem cumprir jornadas representativas com linguagem variada e recuperação clara quando a Alexa entende errado.
 
-## M4 — Agentes, comunidade e operação de produto
+## M4 — MCP, contas e comunidade
 
 **Meta:** outras pessoas conseguirem instalar, adaptar e contribuir com confiança.
 
-- Publicar contrato de adaptadores, catálogo de capacidades e perfis de agentes; validar instalação, atualização e diagnóstico em ambiente limpo.
+- Publicar o servidor MCP e um contrato de adaptadores, catálogo de capacidades e perfis de agentes; validar instalação, registro no cliente, atualização e diagnóstico em ambiente limpo.
+- Implementar uma skill compartilhada com account linking, pareamento e revogação de instalações e dispositivos. Testar isolamento entre usuários, perda de conexão, reinstalação e múltiplas máquinas antes de abrir o serviço à comunidade.
 - Oferecer guia de início, exemplos de frases, demonstração, roteiro de teste, documentação de segurança e contribuição. Esclarecer custos de domínio, infraestrutura e provedores de agentes.
 - Criar uma interface de acompanhamento para projetos, histórico, políticas, resultados de testes e resolução de problemas, sem tornar a voz dependente dela para tarefas básicas.
-- Estudar distribuição da skill e onboarding para a comunidade; antes de publicar, resolver consentimento, isolamento de contas/dispositivos, credenciais e requisitos da plataforma. Multiusuário e múltiplas máquinas exigem especificação própria.
+- Preparar distribuição da skill e onboarding para a comunidade; antes de publicar, resolver consentimento, isolamento de contas/dispositivos, credenciais e requisitos da plataforma. Multiusuário e múltiplas máquinas exigem especificação própria.
 - Avaliar integrações com repositórios, issues, revisões e entrega de software somente com ações identificadas e autorização adequada.
 
 **Pronto quando:** uma pessoa externa instala em máquina limpa, conecta pelo menos dois agentes, executa um fluxo de voz e consegue diagnosticar uma falha usando a documentação.
