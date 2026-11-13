@@ -6,3 +6,4 @@ starlette==1.6.0
 pydantic==2.12.5
 jsonschema==4.26.0
 cryptography==46.0.5
+argon2-cffi==25.1.0
