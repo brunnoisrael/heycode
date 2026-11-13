@@ -17,10 +17,10 @@ def test_caminhos_protegidos_cobrem_a_esteira(config):
 def test_caminhos_de_revisao_humana_cobrem_o_nucleo_sensivel(config):
     human = set(config["human_review_paths"])
     for p in (
-        "bridge/policy/**",
-        "bridge/store/**",
-        "bridge/mcp/**",
-        "bridge/supervisor/**",
+        "src/heycode/policy/**",
+        "src/heycode/store/**",
+        "src/heycode/mcp_server/**",
+        "src/heycode/supervisor/**",
         "skill/lambda/**",
         "docs/superpowers/specs/**",
     ):
@@ -35,7 +35,12 @@ def test_pisos_numericos(config):
 
 def test_arquitetura_ampliada_e_mantem_a_anterior(config):
     arch = set(config["architecture_paths"])
-    assert {"bridge/policy/*", "bridge/mcp/*", "bridge/supervisor/*", "bridge/store/*"} <= arch
+    assert {
+        "src/heycode/policy/*",
+        "src/heycode/mcp_server/*",
+        "src/heycode/supervisor/*",
+        "src/heycode/store/*",
+    } <= arch
     assert {"relay/*", "protocol/*", "infra/*"} <= arch
 
 

@@ -7,14 +7,9 @@ import subprocess
 import tempfile
 import threading
 
-try:
-    from bridge.policy.redact import mask_secrets
-    from bridge.supervisor.failure import failure_reason
-    from bridge.supervisor.runner import build_command
-except ImportError:  # `uvicorn server:app` com bridge/ no sys.path
-    from policy.redact import mask_secrets
-    from supervisor.failure import failure_reason
-    from supervisor.runner import build_command
+from heycode.policy.redact import mask_secrets
+from heycode.supervisor.failure import failure_reason
+from heycode.supervisor.runner import build_command
 
 SUMMARY_MAX = 400
 TAIL_LINES = 5

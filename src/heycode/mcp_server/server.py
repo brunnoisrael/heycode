@@ -1,7 +1,5 @@
 """Servidor MCP "roomcode" (ADR 0006): ferramentas que qualquer agente com cliente MCP usa na ponte.
 
-Este arquivo e carregado por `bridge/server.py` via importlib (o pacote `bridge/mcp` faria sombra
-ao SDK `mcp` se `bridge/` estiver no sys.path), com o SDK ja presente em sys.modules.
 """
 import asyncio
 import hmac
@@ -12,7 +10,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.responses import PlainTextResponse
 
-from policy.engine import decidir
+from heycode.policy.engine import decidir
 
 
 def make_tools(store, approval_wait, has_pin=lambda: True, instruction_ttl=lambda: None):

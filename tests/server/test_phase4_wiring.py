@@ -84,16 +84,17 @@ def test_reinicio_marca_runs_em_andamento_como_interrompidas(tmp_path, monkeypat
     monkeypatch.setenv("BRIDGE_DB", str(tmp_path / "restart.db"))
     monkeypatch.setenv("BRIDGE_PIN", "1234")
     monkeypatch.setenv("NTFY_TOPIC", "")
-    import os
-    monkeypatch.syspath_prepend(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bridge")))
-    from store.db import Store
+    from heycode.store.db import Store
 
     seed = Store(str(tmp_path / "restart.db"))
     run_id = seed.create_run("codex", "proj", "algo", str(tmp_path))
     seed.update_run(run_id, status="rodando")
     seed.close()
 
-    server = importlib.reload(sys.modules["server"]) if "server" in sys.modules else importlib.import_module("server")
+    if "heycode.app" in sys.modules:
+        server = importlib.reload(sys.modules["heycode.app"])
+    else:
+        server = importlib.import_module("heycode.app")
     with TestClient(server.app, headers={"x-secret": "c" * 40}) as c:
         assert c.get(f"/runs/{run_id}").json()["status"] == "interrompida"
     server.store.close()

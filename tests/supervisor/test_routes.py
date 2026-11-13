@@ -4,9 +4,9 @@ import time
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
-from bridge.store.db import Store
-from bridge.supervisor.manager import Supervisor
-from bridge.supervisor.routes import make_router
+from heycode.store.db import Store
+from heycode.supervisor.manager import Supervisor
+from heycode.supervisor.routes import make_router
 
 
 def auth(x_secret: str = Header(default="")):

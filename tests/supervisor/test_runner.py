@@ -1,6 +1,6 @@
 import pytest
 
-from bridge.supervisor.runner import build_command
+from heycode.supervisor.runner import build_command
 
 
 def test_codex_auto():

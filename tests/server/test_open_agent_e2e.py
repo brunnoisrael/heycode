@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-HOOK = os.path.join(os.path.dirname(__file__), "..", "..", "bridge", "hook.py")
+HOOK = ["-m", "heycode.hook"]
 PREFIX = "Instrução do dono, ditada pela Alexa e confirmada por voz: "
 
 
@@ -119,7 +119,7 @@ def _free_port():
 
 def _hook(payload, url, secret):
     env = dict(os.environ, BRIDGE_URL=url, BRIDGE_SECRET=secret)
-    return subprocess.run([sys.executable, HOOK], input=json.dumps(payload).encode("utf-8"),
+    return subprocess.run([sys.executable, *HOOK], input=json.dumps(payload).encode("utf-8"),
                           capture_output=True, env=env, timeout=30)
 
 

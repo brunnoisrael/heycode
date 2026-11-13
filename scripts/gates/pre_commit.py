@@ -9,6 +9,7 @@ from pathlib import Path
 
 sys.dont_write_bytecode = True  # hooks nao deixam __pycache__ no projeto
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from diffparse import parse_added_lines  # noqa: E402
 from lint import run_lint  # noqa: E402
 from secret_scan import scan_staged  # noqa: E402
 
@@ -92,6 +93,30 @@ def _read_added_lines() -> dict[str, int]:
     return added
 
 
+def _read_added_line_numbers() -> dict[str, set[int]]:
+    out = subprocess.run(
+        ["git", "diff", "--cached", "-U0", "-M", "--no-color"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=True,
+    ).stdout
+    return parse_added_lines(out)
+
+
+def _read_new_files() -> list[str]:
+    """Arquivos realmente novos (renomear/mover nao conta como novo: o legado nao e reformatado)."""
+    out = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--diff-filter=A", "-M", "-z"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    ).stdout
+    return [p for p in out.split(chr(0)) if p]
+
+
 def _read_staged() -> list[tuple[str, str]]:
     out = subprocess.run(
         ["git", "diff", "--cached", "--name-status", "-M", "-z"],
@@ -127,7 +152,9 @@ def main() -> int:
     staged = _read_staged()
     errors = check_staged(staged, config)
     errors += scan_staged()
-    errors += run_lint([p for s, p in staged if s != "D"], format_files=[p for s, p in staged if s == "A"])
+    errors += run_lint(
+        [p for s, p in staged if s != "D"], format_files=_read_new_files(), added_lines=_read_added_line_numbers()
+    )
     for w in local_warnings([p for s, p in staged if s != "D"], _read_added_lines(), config):
         print(f"pre-commit (aviso, o CI bloqueia): {w}", file=sys.stderr)
     for e in errors:

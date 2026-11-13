@@ -11,10 +11,10 @@
 /.gitleaks.toml @brunnoisrael
 /ruff.toml @brunnoisrael
 /LICENSE @brunnoisrael
-/bridge/policy/ @brunnoisrael
-/bridge/store/ @brunnoisrael
-/bridge/mcp/ @brunnoisrael
-/bridge/supervisor/ @brunnoisrael
+/src/heycode/policy/ @brunnoisrael
+/src/heycode/store/ @brunnoisrael
+/src/heycode/mcp_server/ @brunnoisrael
+/src/heycode/supervisor/ @brunnoisrael
 /skill/lambda/ @brunnoisrael
 /skill/interaction-model-pt-BR.json @brunnoisrael
 /docs/superpowers/specs/ @brunnoisrael

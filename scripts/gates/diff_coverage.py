@@ -1,32 +1,16 @@
-"""Gate G7: cobertura das linhas novas (piso global) e de ramos nas linhas tocadas de bridge/policy."""
+"""Gate G7: cobertura das linhas novas (piso global) e de ramos nas linhas tocadas de src/heycode/policy."""
 
 import fnmatch
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from diffparse import parse_added_lines  # noqa: E402,F401  (reexportado)
 from pre_commit import _is_code  # noqa: E402
 
-HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
-POLICY_GLOB = "bridge/policy/*"
-
-
-def parse_added_lines(diff: str) -> dict[str, set[int]]:
-    """Linhas adicionadas por arquivo, a partir de `git diff -U0`."""
-    added: dict[str, set[int]] = {}
-    path, line = "", 0
-    for raw in diff.splitlines():
-        if raw.startswith("+++ "):
-            path = raw[4:].removeprefix("b/")
-        elif m := HUNK.match(raw):
-            line = int(m.group(1))
-        elif raw.startswith("+") and not raw.startswith("+++"):
-            added.setdefault(path, set()).add(line)
-            line += 1
-    return added
+POLICY_GLOB = "src/heycode/policy/*"
 
 
 def check_coverage(added: dict[str, set[int]], cov: dict, config: dict) -> list[str]:

@@ -58,7 +58,7 @@ def test_ci_range_ok(repo, capsys):
 
 def test_ci_range_com_erro_imprime_e_retorna_1(repo, capsys):
     git(repo, "checkout", "-q", "-b", "pr")
-    commit(repo, "feat: sem trailer", {"bridge/a.py": "x = 1\n"})
+    commit(repo, "feat: sem trailer", {"src/heycode/a.py": "x = 1\n"})
     assert ci_main(["ci", "range", "main", "HEAD"], repo) == 1
     assert "ci:" in capsys.readouterr().err
 
@@ -92,10 +92,10 @@ def test_ci_modo_desconhecido_falha(repo):
 
 def _cov_repo(repo, executed, missing):
     git(repo, "checkout", "-q", "-b", "pr")
-    commit(repo, "feat: a", {"bridge/a.py": "a = 1\nb = 2\nc = 3\n"})
+    commit(repo, "feat: a", {"src/heycode/a.py": "a = 1\nb = 2\nc = 3\n"})
     report = {
         "files": {
-            "bridge/a.py": {"executed_lines": executed, "missing_lines": missing, "missing_branches": []},
+            "src/heycode/a.py": {"executed_lines": executed, "missing_lines": missing, "missing_branches": []},
         }
     }
     path = repo.parent / (repo.name + "-cov.json")
@@ -167,16 +167,48 @@ def test_pre_commit_main_limpo(repo, capsys):
 
 
 def test_pre_commit_main_arquitetura_sem_adr_falha(repo, capsys):
-    (repo / "bridge" / "policy").mkdir(parents=True)
-    (repo / "bridge/policy/engine.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src" / "heycode" / "policy").mkdir(parents=True)
+    (repo / "src/heycode/policy/engine.py").write_text("x = 1\n", encoding="utf-8")
     git(repo, "add", "-A")
     assert pre_main() == 1
     assert "ADR" in capsys.readouterr().err
 
 
 def test_pre_commit_main_avisa_teste_ausente_sem_bloquear(repo, capsys):
-    (repo / "bridge").mkdir()
-    (repo / "bridge/a.py").write_text("x = 1\n", encoding="utf-8")
+    (repo / "src" / "heycode").mkdir(parents=True)
+    (repo / "src/heycode/a.py").write_text("x = 1\n", encoding="utf-8")
     git(repo, "add", "-A")
     assert pre_main() == 0
     assert "G4" in capsys.readouterr().err
+
+
+def test_pre_commit_main_renomear_arquivo_legado_nao_exige_formato(repo, capsys):
+    (repo / "legacy").mkdir()
+    (repo / "legacy/a.py").write_text("x   =   1\n" * 5, encoding="utf-8")  # fora do padrao do ruff
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "--no-verify", "-m", "chore: legado")
+    git(repo, "mv", "legacy/a.py", "legacy/b.py")
+    assert pre_main() == 0
+
+
+def test_pre_commit_main_arquivo_novo_fora_do_formato_falha(repo, capsys):
+    (repo / "legacy").mkdir()
+    (repo / "legacy/c.py").write_text("x   =   1\n" * 5, encoding="utf-8")
+    git(repo, "add", "-A")
+    assert pre_main() == 1
+    assert "G6" in capsys.readouterr().err
+
+
+def test_lint_main_so_acusa_linhas_alteradas(repo, capsys):
+    from lint import main as lint_main
+
+    (repo / "legacy").mkdir()
+    (repo / "legacy/a.py").write_text("import os\nimport sys\nx = 1\n", encoding="utf-8")  # F401 legado
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "--no-verify", "-m", "chore: legado")
+    git(repo, "checkout", "-q", "-b", "pr")
+    commit(repo, "fix: toca so a ultima linha", {"legacy/a.py": "import os\nimport sys\nx = 2\n"})
+    assert lint_main(["lint", "main", "HEAD"]) == 0
+    commit(repo, "fix: nova linha com erro", {"legacy/a.py": "import os\nimport sys\nx = 2\nimport json\n"})
+    assert lint_main(["lint", "main", "HEAD"]) == 1
+    assert "F401" in capsys.readouterr().err

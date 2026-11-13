@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from bridge.store.db import Store
+from heycode.store.db import Store
 
 
 def test_politica_padrao():

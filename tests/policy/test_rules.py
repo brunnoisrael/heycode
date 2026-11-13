@@ -1,6 +1,6 @@
 import pytest
 
-from bridge.policy.rules import NEVER_BY_VOICE, is_destructive, is_routine
+from heycode.policy.rules import NEVER_BY_VOICE, is_destructive, is_routine
 
 
 @pytest.mark.parametrize("cmd", [

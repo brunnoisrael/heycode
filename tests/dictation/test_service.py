@@ -2,9 +2,9 @@ import pytest
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
-from bridge.dictation.routes import make_router
-from bridge.dictation.service import Dictation
-from bridge.policy.redact import mask_secrets
+from heycode.dictation.routes import make_router
+from heycode.dictation.service import Dictation
+from heycode.policy.redact import mask_secrets
 
 SK = "sk-abcdef1234567890XYZ"
 
@@ -50,7 +50,7 @@ def test_ditado_texto_normal_intacto(env):
 
 
 def test_ditado_nao_tem_mascara_local():
-    import bridge.dictation.service as svc
+    import heycode.dictation.service as svc
     assert not hasattr(svc, "_mask") and svc.mask_secrets is mask_secrets
 
 

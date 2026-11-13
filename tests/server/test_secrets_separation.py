@@ -5,7 +5,6 @@ import sys
 
 import pytest
 
-BRIDGE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "bridge"))
 
 # (metodo, rota, corpo)
 CONTROL_ROUTES = [
@@ -71,10 +70,9 @@ def _import_server(tmp_path, monkeypatch, agent, control):
         monkeypatch.delenv("BRIDGE_CONTROL_SECRET", raising=False)
     else:
         monkeypatch.setenv("BRIDGE_CONTROL_SECRET", control)
-    monkeypatch.syspath_prepend(BRIDGE_DIR)
-    if "server" in sys.modules:
-        return importlib.reload(sys.modules["server"])
-    return importlib.import_module("server")
+    if "heycode.app" in sys.modules:
+        return importlib.reload(sys.modules["heycode.app"])
+    return importlib.import_module("heycode.app")
 
 
 @pytest.mark.parametrize("agent,control", [

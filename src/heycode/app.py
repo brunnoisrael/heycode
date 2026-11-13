@@ -1,45 +1,34 @@
 """Servidor-ponte: recebe eventos dos hooks do Claude Code e responde a skill da Alexa."""
-import asyncio, hmac, importlib.util, json, os, re, secrets, sys, threading, time, urllib.request
+import asyncio
+import hmac
+import json
+import os
+import re
+import secrets
+import threading
+import time
+import urllib.request
 from contextlib import asynccontextmanager
 from typing import Literal, Optional
-
-_BRIDGE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-
-def _load_mcp_module():
-    """Carrega bridge/mcp/server.py sem deixar o pacote `bridge/mcp` fazer sombra ao SDK `mcp`."""
-    saved = sys.path[:]
-    try:  # importa o SDK com bridge/ (e cwd == bridge/) fora do sys.path; depois fica em sys.modules
-        sys.path[:] = [p for p in sys.path if os.path.abspath(p or os.getcwd()) != _BRIDGE_DIR]
-        for name in [n for n in sys.modules if n == "mcp" or n.startswith("mcp.")]:
-            if os.path.abspath(getattr(sys.modules[name], "__file__", "") or "").startswith(os.path.join(_BRIDGE_DIR, "mcp")):
-                del sys.modules[name]  # sombra de import anterior
-        import mcp.server.fastmcp  # noqa: F401
-    finally:
-        sys.path[:] = saved
-    spec = importlib.util.spec_from_file_location("roomcode_mcp", os.path.join(_BRIDGE_DIR, "mcp", "server.py"))
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
-
-
-sys.path.insert(0, _BRIDGE_DIR)  # `uvicorn server:app` e testes
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from policy.engine import decidir
-from policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
-from store.db import Store
-from policy.redact import mask_secrets
-from supervisor.manager import Supervisor
-from supervisor.failure import spoken_reason
-from supervisor.routes import make_router as _runs_router, resolve_under_root
-from dictation.service import Dictation
-from dictation.routes import make_router as _dictation_router
-from projects.service import ProjectCreator
-from projects.routes import make_router as _projects_router
-from projects.activity import make_router as _activity_router
+from heycode.dictation.routes import make_router as _dictation_router
+from heycode.dictation.service import Dictation
+from heycode.mcp_server import server as mcp_mod
+from heycode.policy.engine import decidir
+from heycode.policy.redact import mask_secrets
+from heycode.policy.rules import NEVER_BY_VOICE  # noqa: F401  (fonte unica; usada via decidir)
+from heycode.projects.activity import make_router as _activity_router
+from heycode.projects.routes import make_router as _projects_router
+from heycode.projects.service import ProjectCreator
+from heycode.store.db import Store
+from heycode.supervisor.failure import spoken_reason
+from heycode.supervisor.manager import Supervisor
+from heycode.supervisor.routes import make_router as _runs_router
+from heycode.supervisor.routes import resolve_under_root
+from heycode.templates import template_root
 
 MIN_SECRET_LEN = 32
 
@@ -62,6 +51,7 @@ APPROVAL_WAIT = int(os.environ.get("APPROVAL_WAIT", "40"))
 OPEN_SESSION_WINDOW = int(os.environ.get("OPEN_SESSION_WINDOW", "1800"))  # s sem evento: a sessao nao conta como aberta
 INSTRUCTION_TTL = int(os.environ.get("INSTRUCTION_TTL", "1800"))  # s: instrucao na fila nao entregue expira
 
+# provisorio ate o diretorio do usuario (P1.4)
 DB_PATH = os.environ.get("BRIDGE_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "bridge.db"))
 DEFAULT_AGENT = "claude"
 
@@ -72,7 +62,6 @@ store.expire_pending()  # reinicio: aprovacoes pendentes expiram, sem reanexar
 store.interrupt_running()  # reinicio: runs do supervisor em andamento viram "interrompida", sem reanexar
 
 
-mcp_mod = _load_mcp_module()
 _tools = mcp_mod.make_tools(store, lambda: APPROVAL_WAIT, lambda: bool(PIN), lambda: INSTRUCTION_TTL)
 _mcp_current = {"app": None}  # sub-app MCP da execucao atual do lifespan (o gerenciador de sessao roda uma vez so)
 
@@ -287,7 +276,7 @@ def _enqueue_instruction(agent: str, text: str, project) -> int:
 
 dictation = Dictation(_start_run, check_project=_check_project,
                       open_session=_open_session, enqueue=_enqueue_instruction)
-_TEMPLATE_REPO = os.path.dirname(_BRIDGE_DIR)  # este repositorio: fonte de scripts/gates e .githooks
+_TEMPLATE_REPO = template_root()  # fonte de scripts/gates e .githooks (pacote ou clone)
 project_creator = ProjectCreator(PROJECTS_ROOT, _TEMPLATE_REPO, _start_run)
 
 

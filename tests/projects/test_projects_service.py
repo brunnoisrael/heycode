@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from bridge.projects.service import ProjectCreator, scaffold_project, slugify
+from heycode.projects.service import ProjectCreator, scaffold_project, slugify
 
 REPO = str(Path(__file__).resolve().parents[2])
 SK = "sk-abcdef1234567890XYZ"
@@ -209,12 +209,12 @@ def test_cancel(env):
 
 # ---- M2: pendencia global unica entre ditado e projeto ----
 def _linked(tmp_path):
-    from bridge.dictation.service import Dictation
+    from heycode.dictation.service import Dictation
     clock, fake = Clock(), Fake()
     runs = []
     d = Dictation(lambda a, t, p: runs.append((a, t, p)) or 9, clock=clock)
     c = ProjectCreator(str(tmp_path), REPO, fake, clock=clock)
-    from bridge.projects.routes import make_router
+    from heycode.projects.routes import make_router
     make_router(c, d, lambda: None)  # a rota liga os dois sem editar server.py
     return c, d, clock, fake, runs
 
@@ -256,7 +256,7 @@ def test_has_pending_ignora_expirada(env):
 
 # ---- B5: git do scaffold com timeout e sem assinatura ----
 def test_git_do_scaffold_usa_timeout_e_sem_gpg(tmp_path, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
     seen = []
     real = subprocess.run
 
@@ -272,7 +272,7 @@ def test_git_do_scaffold_usa_timeout_e_sem_gpg(tmp_path, monkeypatch):
 
 
 def test_scaffold_com_timeout_falha_limpo(tmp_path, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
 
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
@@ -284,7 +284,7 @@ def test_scaffold_com_timeout_falha_limpo(tmp_path, monkeypatch):
 
 
 def test_confirm_com_timeout_fala_erro_sem_pasta(env, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
     c, _, fake, root = env
 
     def boom(cmd, **kw):

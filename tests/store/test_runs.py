@@ -1,6 +1,6 @@
 import pytest
 
-from bridge.store.db import Store
+from heycode.store.db import Store
 
 
 def test_ciclo_de_status():

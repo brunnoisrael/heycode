@@ -6,10 +6,7 @@ from html import escape
 
 from fastapi import APIRouter, Depends, Query
 
-try:
-    from policy.redact import mask_secrets
-except ImportError:  # uso pelo pacote bridge nos testes
-    from bridge.policy.redact import mask_secrets
+from heycode.policy.redact import mask_secrets
 
 PAGE_SIZE = 3
 SESSION_WINDOW = 1800

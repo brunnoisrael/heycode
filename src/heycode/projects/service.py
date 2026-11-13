@@ -8,10 +8,7 @@ import time
 import unicodedata
 from typing import Callable
 
-try:  # no servidor, `bridge/` esta no sys.path; nos testes, o pacote e `bridge`
-    from policy.redact import mask_secrets
-except ImportError:  # pragma: no cover
-    from bridge.policy.redact import mask_secrets
+from heycode.policy.redact import mask_secrets
 
 MAX_SLUG = 40
 AGENTS = ("claude", "codex", "aider")

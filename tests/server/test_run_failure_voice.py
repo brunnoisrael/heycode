@@ -140,7 +140,7 @@ def test_falha_sobrevive_ao_reinicio(client):
 
     _falha(client, MSG)
     client.server.store.close()
-    server = importlib.reload(sys.modules["server"])
+    server = importlib.reload(sys.modules["heycode.app"])
     c2 = TestClient(server.app, headers={"x-secret": CONTROL_SECRET})
     try:
         assert MSG in c2.get("/pending").json()["speech"]

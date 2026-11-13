@@ -33,21 +33,13 @@ jobs:
         with:
           node-version: "22"
       - name: Dependencias
-        run: python -m pip install -r requirements-dev.txt -r bridge/requirements.txt pip-audit==2.10.1
+        run: python -m pip install -r requirements-dev.txt -e . -c constraints.txt pip-audit==2.10.1
       - name: G8 acoes fixadas por hash
         if: ${{ !cancelled() }}
         run: python scripts/gates/workflow_pins.py
-      - name: G6 lint e formato dos arquivos Python alterados
+      - name: G6 lint das linhas alteradas e formato dos arquivos novos
         if: ${{ !cancelled() }}
-        run: |
-          FILES=$(git diff --name-only --diff-filter=ACMR "$BASE_SHA..$HEAD_SHA" -- '*.py')
-          NEW=$(git diff --name-only --diff-filter=A "$BASE_SHA..$HEAD_SHA" -- '*.py')
-          if [ -n "$FILES" ]; then
-            python -m ruff check --config scripts/gates/ruff.toml $FILES
-          fi
-          if [ -n "$NEW" ]; then
-            python -m ruff format --check --config scripts/gates/ruff.toml $NEW
-          fi
+        run: python scripts/gates/lint.py "$BASE_SHA" "$HEAD_SHA"
       - name: G5 segredos em cada commit do intervalo
         if: ${{ !cancelled() }}
         run: python scripts/gates/secret_scan.py "$BASE_SHA" "$HEAD_SHA"
@@ -57,7 +49,7 @@ jobs:
       - name: G7 testes Python com cobertura
         if: ${{ !cancelled() }}
         run: |
-          python -m coverage run --branch --source=bridge,scripts/gates -m pytest -q
+          python -m coverage run --branch --source=src/heycode,scripts/gates -m pytest -q
           python -m coverage json -o coverage.json
       - name: G7 cobertura das linhas novas e ramos da politica
         if: ${{ !cancelled() }}
@@ -90,7 +82,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install -r requirements-dev.txt -r bridge/requirements.txt
+      - run: python -m pip install -r requirements-dev.txt -e . -c constraints.txt
       - run: python -m pytest -q
 
   human-approval:
