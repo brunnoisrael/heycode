@@ -202,3 +202,21 @@ def test_oauth_nao_configurado_responde_404(clock):
     with TestClient(create_app(SqliteRepository(":memory:"), clock)) as c:
         assert c.get("/oauth/authorize").status_code == 404
         assert c.post("/oauth/token", data={}).status_code == 404
+
+
+def test_token_tem_limite_por_ip(client, clock):
+    for _ in range(30):
+        assert token(client, code="invalido").status_code == 400
+    r = token(client, code="invalido")
+    assert r.status_code == 429 and r.headers["retry-after"] == "60"
+    clock.t += 61
+    assert token(client, code="invalido").status_code == 400
+
+
+def test_formulario_de_vinculacao_tem_limite_por_ip_e_por_email(client, clock):
+    signup(client, "a@exemplo.com")
+    clock.t += 61
+    for _ in range(10):
+        assert authorize(client, password="senha-errada-1").status_code == 401
+    r = authorize(client)
+    assert r.status_code == 429 and "Muitas tentativas" in r.text and int(r.headers["retry-after"]) > 0

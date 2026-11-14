@@ -280,3 +280,13 @@ def test_fim_de_sessao_responde_vazio(world):
     c, env, clock, tok = _aprovada(world)
     r = alexa(c, env, clock, token=tok, rtype="SessionEndedRequest")
     assert r.status_code == 200 and "outputSpeech" not in r.json()["response"]
+
+
+def test_assinatura_forjada_repetida_bane_o_ip(world):
+    client, env, clock, _ = world
+    for _ in range(21):
+        assert alexa(client, env, clock, signature="AAAA").status_code == 400
+    r = alexa(client, env, clock)
+    assert r.status_code == 429 and r.headers["retry-after"] == "900"
+    clock.t += 901
+    assert alexa(client, env, clock).status_code == 200

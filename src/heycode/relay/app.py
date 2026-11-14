@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import html
 import secrets
+from collections import OrderedDict
 from collections.abc import Callable
 from pathlib import Path
 from typing import Annotated
@@ -40,6 +41,7 @@ SESSION_COOKIE = "hc_session"
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_PENDING_DEVICES = 10
 MAX_SHORTCUTS = 30
+MAX_TRACKED_PAIRINGS = 1000
 PANEL_DIR = Path(__file__).parent / "panel"
 PANEL_FILES = {"panel.js": "text/javascript; charset=utf-8", "panel.css": "text/css; charset=utf-8"}  # lista fechada
 PANEL_CSP = (
@@ -166,9 +168,31 @@ def create_app(
     registration_limiter = RateLimiter(clock, limit=10, window=60.0)
     deletion_limiter = RateLimiter(clock, limit=10, window=60.0)
     ip_limiter = RateLimiter(clock, limit=ip_limit, window=60.0)
+    email_limiter = RateLimiter(clock, limit=20, window=900.0)  # por e-mail: segura forca bruta distribuida
+    probe_limiter = RateLimiter(clock, limit=30, window=60.0)  # rotas sem login: pareamento e token OAuth
+    code_limiter = RateLimiter(clock, limit=10, window=60.0)  # por conta
+    alexa_limiter = RateLimiter(clock, limit=600, window=60.0)  # a Amazon fala por poucos IPs compartilhados
     bans = BanList(clock)
-    names: dict[str, str] = {}
-    done: dict[str, str] = {}
+    names: OrderedDict[str, str] = OrderedDict()
+    done: OrderedDict[str, str] = OrderedDict()
+
+    def _source(request: Request) -> str:
+        return request.client.host if request.client else "desconhecida"
+
+    def _throttle(limiter: RateLimiter, key: str) -> None:
+        if not limiter.allow(key):
+            raise HTTPException(429, "muitas tentativas", headers={"Retry-After": str(limiter.retry_after(key))})
+
+    def _throttle_login(request: Request, email: str) -> None:
+        """Por IP e por e-mail; o e-mail vira hash para a chave nao guardar o endereco."""
+        _throttle(login_limiter, _source(request))
+        _throttle(email_limiter, hashlib.sha256(email.strip().lower().encode()).hexdigest())
+
+    def _remember(store: OrderedDict[str, str], key: str, value: str) -> None:
+        store[key] = value
+        while len(store) > MAX_TRACKED_PAIRINGS:
+            store.popitem(last=False)
+
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
     app.state.hub = hub
 
@@ -248,7 +272,7 @@ def create_app(
         iid = repo.create_installation(
             binding.account_id, binding.public_key, names.pop(pending_id, "computador"), clock()
         )
-        done[pending_id] = iid
+        _remember(done, pending_id, iid)
         return {"state": "done", "installation_id": iid}
 
     @app.get("/health")
@@ -257,9 +281,7 @@ def create_app(
 
     @app.post("/v1/register", status_code=201)
     def register(body: Credentials, request: Request) -> dict:
-        source = request.client.host if request.client else "desconhecida"
-        if not registration_limiter.allow(source):
-            raise HTTPException(429, "muitas tentativas")
+        _throttle(registration_limiter, _source(request))
         try:
             return {"account_id": accounts.register(body.email, body.password)}
         except AccountError as exc:
@@ -267,9 +289,7 @@ def create_app(
 
     @app.post("/v1/login")
     def login(body: Credentials, request: Request) -> dict:
-        source = request.client.host if request.client else "desconhecida"
-        if not login_limiter.allow(source):
-            raise HTTPException(429, "muitas tentativas")
+        _throttle_login(request, body.email)
         try:
             return {"token": accounts.login(body.email, body.password)}
         except AccountError as exc:
@@ -282,9 +302,7 @@ def create_app(
 
     @app.post("/v1/panel/login")
     def panel_login(body: Credentials, request: Request, response: Response) -> dict:
-        source = request.client.host if request.client else "desconhecida"
-        if not login_limiter.allow(source):
-            raise HTTPException(429, "muitas tentativas")
+        _throttle_login(request, body.email)
         try:
             token = accounts.login(body.email, body.password)
         except AccountError as exc:
@@ -308,16 +326,17 @@ def create_app(
 
     @app.post("/v1/pair/codes")
     def issue_code(account_id: str = Depends(current_account)) -> dict:
+        _throttle(code_limiter, account_id)
         return {"code": pairing.issue(account_id)}
 
     @app.post("/v1/pair/redeem")
     def redeem(body: RedeemBody, request: Request) -> dict:
-        source = request.client.host if request.client else "desconhecida"
+        source = _source(request)
         try:
             pending = pairing.redeem(body.code.strip().upper(), body.public_key, source)
         except IdentityError as exc:
             raise HTTPException(429 if exc.code == "locked" else 400, exc.code) from exc
-        names[pending.id] = body.name[:64]
+        _remember(names, pending.id, body.name[:64])
         return {"pending_id": pending.id, "verification": pending.verification}
 
     @app.get("/v1/pair/pending")
@@ -335,7 +354,8 @@ def create_app(
         return {"verification": pending.verification}
 
     @app.post("/v1/pair/machine-confirm")
-    def machine_confirm(body: PendingBody) -> dict:
+    def machine_confirm(body: PendingBody, request: Request) -> dict:
+        _throttle(probe_limiter, _source(request))
         try:
             binding = pairing.confirm(body.pending_id, "machine")
         except IdentityError as exc:
@@ -354,7 +374,8 @@ def create_app(
         return complete(body.pending_id, binding)
 
     @app.get("/v1/pair/{pending_id}")
-    def pair_status(pending_id: str) -> dict:
+    def pair_status(pending_id: str, request: Request) -> dict:
+        _throttle(probe_limiter, _source(request))
         if pending_id in done:
             return {"state": "done", "installation_id": done[pending_id]}
         if pairing.get_pending(pending_id) is not None:
@@ -437,10 +458,11 @@ def create_app(
     @app.post("/oauth/authorize")
     async def oauth_authorize(request: Request) -> Response:
         server = _need_oauth()
-        source = request.client.host if request.client else "desconhecida"
-        if not login_limiter.allow(source):
-            return HTMLResponse("Muitas tentativas. Tente de novo em instantes.", status_code=429)
         form = {k: v[0] for k, v in parse_qs((await request.body()).decode("utf-8", "replace")).items()}
+        try:
+            _throttle_login(request, form.get("email", ""))
+        except HTTPException as exc:
+            return HTMLResponse("Muitas tentativas. Tente de novo em instantes.", status_code=429, headers=exc.headers)
         params = {k: form[k] for k in _OAUTH_PARAMS if form.get(k)}
         try:
             location = server.authorize(form.get("email", ""), form.get("password", ""), params)
@@ -453,6 +475,7 @@ def create_app(
     @app.post("/oauth/token")
     async def oauth_token(request: Request) -> Response:
         server = _need_oauth()
+        _throttle(probe_limiter, _source(request))
         form = {k: v[0] for k, v in parse_qs((await request.body()).decode("utf-8", "replace")).items()}
         basic = None
         auth = request.headers.get("authorization", "")
@@ -648,10 +671,13 @@ def create_app(
     async def alexa_endpoint(request: Request) -> JSONResponse:
         if alexa is None:
             raise HTTPException(404, "skill nao configurada")
+        source = _source(request)
+        _throttle(alexa_limiter, source)
         body = await request.body()
         try:
             data = await asyncio.to_thread(alexa.verify, dict(request.headers), body)
         except AlexaVerifyError as exc:
+            bans.strike(source)  # pedido forjado custa caro de conferir: insistir bane o IP
             return JSONResponse({"error": exc.code}, status_code=400)  # nada e executado
         system = data.get("context", {}).get("System", {})
         req = data.get("request", {})
