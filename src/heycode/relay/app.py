@@ -26,7 +26,7 @@ from heycode.protocol.outbound import uuid7
 from heycode.relay.accounts import SESSION_TTL, AccountError, Accounts
 from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
-from heycode.relay.limits import RateLimiter, day_key
+from heycode.relay.limits import BanList, RateLimiter, day_key
 from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
 from heycode.relay.shortcuts import normalize
 from heycode.relay.voice import BridgeUnavailable
@@ -48,27 +48,40 @@ PANEL_CSP = (
 )
 SHORTCUT_AGENTS = ("claude", "codex", "aider")
 SYNC_TIMEOUT = 4.0
+IP_LIMIT = 240  # pedidos por minuto por IP, somando todas as rotas
+MAX_BODY = 64 * 1024
+MAX_BODY_ALEXA = 256 * 1024
+API_CSP = "default-src 'none'; frame-ancestors 'none'"
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Frame-Options": "DENY",
+    "Cross-Origin-Opener-Policy": "same-origin",
+    "Cross-Origin-Resource-Policy": "same-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+    "Content-Security-Policy": API_CSP,
+}
 CLOSE_UNAUTHORIZED = 4401
 
 
 class Credentials(BaseModel):
-    email: str
-    password: str
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=256)  # teto: o Argon2 nunca recebe um corpo gigante
 
 
 class RedeemBody(BaseModel):
-    code: str
-    public_key: str
-    name: str = "computador"
+    code: str = Field(max_length=64)
+    public_key: str = Field(max_length=128)
+    name: str = Field(default="computador", max_length=200)
 
 
 class PendingBody(BaseModel):
-    pending_id: str
+    pending_id: str = Field(max_length=64)
 
 
 class DeviceBody(BaseModel):
-    installation_id: str
-    device_id: str
+    installation_id: str = Field(max_length=64)
+    device_id: str = Field(max_length=512)
 
 
 class DisableCommandBody(BaseModel):
@@ -88,11 +101,11 @@ class RenameBody(BaseModel):
 
 
 class DefaultInstallationBody(BaseModel):
-    installation_id: str
+    installation_id: str = Field(max_length=64)
 
 
 class DeleteAccountBody(BaseModel):
-    password: str
+    password: str = Field(max_length=256)
 
 
 class ShortcutBody(BaseModel):
@@ -126,10 +139,10 @@ class ShortcutBody(BaseModel):
 
 
 class SkillRequest(BaseModel):
-    installation_id: str | None = None
-    text: str
-    destination: str
-    agent: str | None = None
+    installation_id: str | None = Field(default=None, max_length=64)
+    text: str = Field(max_length=2000)
+    destination: str = Field(max_length=80)
+    agent: str | None = Field(default=None, max_length=40)
 
 
 def create_app(
@@ -140,8 +153,10 @@ def create_app(
     daily_quota: int = DAILY_QUOTA,
     oauth: OAuthConfig | None = None,
     alexa: AlexaVerifier | None = None,
+    ip_limit: int = IP_LIMIT,
 ) -> FastAPI:
-    app = FastAPI(title="HeyCode relay")
+    # sem /docs, /redoc nem /openapi.json: o mapa das rotas nao fica publico
+    app = FastAPI(title="HeyCode relay", docs_url=None, redoc_url=None, openapi_url=None)
     accounts = Accounts(repo, clock)
     pairing = PairingService(clock)
     hub = Hub()
@@ -150,6 +165,8 @@ def create_app(
     login_limiter = RateLimiter(clock, limit=10, window=60.0)
     registration_limiter = RateLimiter(clock, limit=10, window=60.0)
     deletion_limiter = RateLimiter(clock, limit=10, window=60.0)
+    ip_limiter = RateLimiter(clock, limit=ip_limit, window=60.0)
+    bans = BanList(clock)
     names: dict[str, str] = {}
     done: dict[str, str] = {}
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
@@ -163,12 +180,35 @@ def create_app(
     def _csrf_for(session_token: str) -> str:
         return hmac.new(csrf_key, session_token.encode(), hashlib.sha256).hexdigest()
 
+    def _refuse(status: int, detail: str, wait: int = 0) -> JSONResponse:
+        headers = {"Retry-After": str(wait)} if wait else {}
+        return JSONResponse({"detail": detail}, status_code=status, headers=headers)
+
+    def _guard(request: Request) -> JSONResponse | None:
+        """Barra cedo, sem tocar banco nem Argon2: IP banido, IP acima da taxa e corpo grande demais."""
+        path = request.url.path
+        if path == "/health":
+            return None
+        source = request.client.host if request.client else "desconhecida"
+        wait = bans.remaining(source)
+        if wait:
+            return _refuse(429, "muitas tentativas", wait)
+        if not ip_limiter.allow(source):
+            bans.strike(source)
+            return _refuse(429, "muitas tentativas", ip_limiter.retry_after(source))
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            cap = MAX_BODY_ALEXA if path == "/v1/alexa" else MAX_BODY
+            if not declared.isdigit() or int(declared) > cap:
+                return _refuse(413, "corpo grande demais")
+        return None
+
     @app.middleware("http")
     async def security_headers(request: Request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("Referrer-Policy", "no-referrer")
-        if request.url.path.startswith(("/v1/panel", "/app")):
+        response = _guard(request) or await call_next(request)
+        for name, value in SECURITY_HEADERS.items():
+            response.headers.setdefault(name, value)
+        if request.url.path.startswith(("/v1/panel", "/app", "/oauth")):
             response.headers["Cache-Control"] = "no-store"
         return response
 
