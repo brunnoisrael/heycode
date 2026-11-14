@@ -5,8 +5,7 @@ MODEL = Path(__file__).resolve().parents[2] / "skill" / "interaction-model-pt-BR
 
 
 def load():
-    # o arquivo e gravado em cp1252 (acentos em um byte): ler como utf-8 corromperia os textos
-    return json.loads(MODEL.read_bytes().decode("cp1252"))["interactionModel"]
+    return json.loads(MODEL.read_bytes().decode("utf-8"))["interactionModel"]  # o arquivo e UTF-8
 
 
 def test_run_command_intent_esta_no_modelo_com_slot_livre_e_frases_de_ativacao():

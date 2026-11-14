@@ -12,7 +12,7 @@ Os atalhos cadastrados no painel (ADR 0048) precisam de uma porta de entrada por
 
 - Uma única intent aditiva, `RunCommandIntent`, com o slot livre `comando` (`AMAZON.SearchQuery`) e frases-guia obrigatórias do SearchQuery ("executar {comando}", "execute", "rode", "rodar", "dispare", "dispara"). O relay normaliza a fala e casa com nome ou apelido; empate e baixa semelhança são recusados.
 - O slot `comando` entra no modelo de diálogo com elicitação (`Elicit.Slot.RunCommand.comando`, "Qual comando?"), para a pergunta quando a pessoa só diz "executar um comando".
-- A alteração é textual e aditiva em `skill/interaction-model-pt-BR.json` (arquivo gravado em cp1252): só bytes ASCII novos, nenhum byte existente tocado; um teste garante o formato e a presença das intents antigas.
+- A alteração é textual e aditiva em `skill/interaction-model-pt-BR.json` (arquivo UTF-8 com quebras CRLF): só linhas ASCII novas, nenhum byte existente tocado; um teste garante o formato, os acentos íntegros e a presença das intents antigas.
 - O Lambda do dono não conhece a intent e continua igual; ela só é tratada pelo endpoint compartilhado.
 - Rejeitado: tipo de slot customizado por conta (exige a API de entidades dinâmicas e credenciais da Amazon por usuário) e uma intent por atalho (o modelo é compartilhado por todos).
 
