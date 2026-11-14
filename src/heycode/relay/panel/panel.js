@@ -1,7 +1,7 @@
 // Painel do HeyCode (ADR 0046). Sem dependencias e sem montar HTML com dados: tudo entra por textContent.
 const ROOT = document.getElementById("app");
 const TOAST = document.getElementById("toast");
-const ACCENTS = { Verde: "#0e9f8e", Azul: "#2563eb", Roxo: "#7c3aed", Rosa: "#db2777", Laranja: "#ea580c", Amarelo: "#ca8a04" };
+const ACCENTS = { Verde: "#0e9f8e", Azul: "#2563eb", Roxo: "#7c3aed", Rosa: "#db2777", Laranja: "#ea580c", Âmbar: "#a16207" };
 const state = { session: null, installations: [], pairTimer: null };
 
 // ---------- utilidades ----------
@@ -26,6 +26,46 @@ function toast(msg) {
   TOAST.classList.add("show");
   clearTimeout(toast.t);
   toast.t = setTimeout(() => TOAST.classList.remove("show"), 3200);
+}
+// Icones: SVG montado por DOM (nada de HTML em texto). Tracos de 24x24, cor herdada do texto.
+const ICONS = {
+  home: "M3 11.5 12 4l9 7.5M5.5 10v9.5h13V10M10 19.5v-5h4v5",
+  computer: "M3.5 5h17v11h-17zM8.5 20h7M12 16v4",
+  device: "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z",
+  trail: "M4 6h16M4 12h11M4 18h14",
+  command: "M5 6l6 6-6 6M13 18h6",
+  pair: "M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7l-1 1M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7l1-1",
+  account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5a7.5 7.5 0 0 1 15 0",
+};
+function icon(name) {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("class", "icon");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", ICONS[name]);
+  svg.append(path);
+  return svg;
+}
+// Dialogo proprio no lugar de prompt/confirm. Resolve com o texto digitado (ou true) ao confirmar e null ao cancelar.
+function ask({ title, text, field, confirm = "Confirmar", danger = false }) {
+  return new Promise((resolve) => {
+    const input = field ? h("input", { id: "ask-input", value: field.value || "", maxlength: field.maxlength, autocomplete: "off" }) : null;
+    const dlg = h("dialog", { class: "modal", "aria-label": title });
+    dlg.append(h("form", { method: "dialog" }, h("h2", { text: title }), text ? h("p", { text }) : null,
+      field ? h("div", {}, h("label", { for: "ask-input", text: field.label }), input) : null,
+      h("div", { class: "form-actions" },
+        h("button", { type: "button", class: "ghost", onclick: () => dlg.close(""), text: "Cancelar" }),
+        h("button", { type: "submit", class: danger ? "danger" : "primary", value: "ok", text: confirm }))));
+    dlg.addEventListener("close", () => {
+      dlg.remove();
+      resolve(dlg.returnValue === "ok" ? (input ? input.value.trim() : true) : null);
+    });
+    document.body.append(dlg);
+    dlg.showModal();
+    if (input) input.select();
+  });
 }
 class ApiError extends Error {
   constructor(status, detail) { super(detail); this.status = status; this.detail = detail; }
@@ -82,14 +122,56 @@ const RESULT = {
 };
 
 // ---------- componentes ----------
+// `title` pode ser texto ou { title, eyebrow, actions }: o cabecalho leva o titulo, o resumo e as acoes da tela.
 function page(title, sub, ...content) {
-  return [h("h1", { text: title }), sub ? h("p", { class: "sub", text: sub }) : null, ...content].flat(Infinity).filter(Boolean);
+  const o = typeof title === "string" ? { title } : title;
+  const head = h("header", { class: "page-head" },
+    h("div", {}, o.eyebrow ? h("p", { class: "eyebrow", text: o.eyebrow }) : null, h("h1", { text: o.title }), sub ? h("p", { class: "sub", text: sub }) : null),
+    o.actions ? h("div", { class: "actions" }, o.actions) : null);
+  return [head, ...content].flat(Infinity).filter(Boolean);
 }
+const go = (hash) => { location.hash = hash; };
 const empty = (msg) => h("div", { class: "empty", text: msg });
 const nameOf = (id) => (state.installations.find((i) => i.id === id) || {}).name || short(id);
 async function loadInstallations() { state.installations = await api("GET", "/v1/installations"); return state.installations; }
 
 // ---------- telas ----------
+async function viewHome() {
+  const [list, devices, commands, trail] = await Promise.all([
+    loadInstallations(), api("GET", "/v1/devices"), api("GET", "/v1/commands"), api("GET", "/v1/audit?limit=6")]);
+  const online = list.filter((i) => i.online).length;
+  const waiting = devices.filter((d) => d.status === "pending").length;
+  const approved = devices.length - waiting;
+  const enabled = commands.filter((c) => c.enabled).length;
+  const stat = (href, ic, label, value, total, note) => h("a", { class: "card stat", href },
+    h("div", { class: "stat-top" }, label, icon(ic)),
+    h("div", { class: "stat-value" }, String(value), total === null ? null : [" ", h("small", { text: "de " + total })]),
+    h("div", { class: "meta", text: note }));
+  const step = (done, label, hint, href) => h("li", { class: done ? "done" : undefined },
+    h("div", {}, h("div", { class: "name" }, done ? label : h("a", { href, text: label })), h("div", { class: "meta", text: hint })));
+  return page({ title: "Visão geral", eyebrow: "Painel", actions: h("button", { class: "primary", onclick: () => go("#/parear"), text: "Parear computador" }) },
+    "O estado dos seus computadores, das suas Alexas e do que a voz fez por último.",
+    h("div", { class: "stats" },
+      stat("#/computadores", "computer", "Computadores conectados", online, list.length, online ? "Prontos para receber pedidos." : "Nenhum conectado agora."),
+      stat("#/dispositivos", "device", "Alexas autorizadas", approved, null, waiting ? waiting + " aguardando sua autorização." : "Nenhuma solicitação pendente."),
+      stat("#/comandos", "command", "Comandos ligados", enabled, commands.length, "Atalhos que a Alexa dispara por voz.")),
+    h("div", { class: "split" },
+      h("section", { class: "card" }, h("h2", { text: "Atividade recente" }),
+        trail.length ? h("ul", { class: "feed" }, trail.map((r) => {
+          const [label, tone] = RESULT[r.result] || [r.result, ""];
+          return h("li", {},
+            h("div", {}, h("div", { class: "name", text: (KIND[r.kind] || r.kind) + (r.label ? " — " + r.label : "") }),
+              h("div", { class: "meta num", text: when(r.t) + (r.installation_id ? " · " + nameOf(r.installation_id) : "") })),
+            h("span", { class: "badge " + tone, text: label }));
+        })) : empty("Nada registrado ainda. Peça algo à Alexa e volte aqui."),
+        trail.length ? h("div", { class: "card-foot" }, h("button", { onclick: () => go("#/rastro"), text: "Ver o rastro completo" })) : null),
+      h("section", { class: "card" }, h("h2", { text: "Primeiros passos" }),
+        h("ol", { class: "steps" },
+          step(list.length > 0, "Pareie um computador", "Gere um código e rode um comando nele.", "#/parear"),
+          step(approved > 0, "Autorize a sua Alexa", "Abra o HeyCode no Echo e aprove o dispositivo aqui.", "#/dispositivos"),
+          step(commands.length > 0, "Crie um comando de voz", "Um atalho que vira um pedido a um agente.", "#/comandos")))));
+}
+
 async function viewComputers() {
   const list = await loadInstallations();
   const rename = async (i) => {
@@ -366,19 +448,34 @@ function viewAuth() {
     h("p", { class: "meta", text: "Sua conta só guarda e-mail, o resumo do que a voz fez e as configurações do painel." }));
 }
 
+// rota: [rotulo do menu, tela, icone, grupo do menu]
 const ROUTES = {
-  "#/computadores": ["Computadores", viewComputers], "#/dispositivos": ["Dispositivos", viewDevices], "#/rastro": ["Rastro", viewAudit],
-  "#/comandos": ["Comandos", viewCommands], "#/parear": ["Parear", viewPair], "#/conta": ["Conta", viewAccount],
+  "#/inicio": ["Visão geral", viewHome, "home", "Operação"],
+  "#/computadores": ["Computadores", viewComputers, "computer", "Operação"],
+  "#/dispositivos": ["Dispositivos", viewDevices, "device", "Operação"],
+  "#/rastro": ["Rastro", viewAudit, "trail", "Operação"],
+  "#/comandos": ["Comandos", viewCommands, "command", "Automação"],
+  "#/parear": ["Parear", viewPair, "pair", "Automação"],
+  "#/conta": ["Conta", viewAccount, "account", "Você"],
 };
+const HOME = "#/inicio";
 
 async function render() {
   clearInterval(state.pairTimer);
   if (!state.session) { ROOT.replaceChildren(viewAuth()); return; }
-  const key = ROUTES[location.hash] ? location.hash : "#/computadores";
-  const nav = h("nav", { class: "nav", "aria-label": "Principal" }, h("div", { class: "brand", text: "HeyCode" }),
-    Object.entries(ROUTES).map(([hash, [label]]) => h("a", { href: hash, text: label, "aria-current": hash === key ? "page" : undefined })),
-    h("div", { class: "who", text: state.session.email }));
-  const main = h("main", { id: "main" }, h("p", { class: "meta", text: "Carregando…" }));
+  const key = ROUTES[location.hash] ? location.hash : HOME;
+  let group = null;
+  const links = Object.entries(ROUTES).flatMap(([hash, [label, , ic, g]]) => {
+    const link = h("a", { href: hash, "aria-current": hash === key ? "page" : undefined }, icon(ic), label);
+    if (g === group) return [link];
+    group = g;
+    return [h("div", { class: "nav-group", text: g }), link];
+  });
+  const email = state.session.email || "";
+  const nav = h("nav", { class: "nav", "aria-label": "Principal" }, h("div", { class: "brand", text: "HeyCode" }), links,
+    h("div", { class: "who", title: email }, h("span", { class: "avatar", "aria-hidden": "true", text: email.slice(0, 1) }), h("span", { text: email })));
+  const main = h("main", { id: "main" },
+    h("div", { class: "skeleton", role: "status", "aria-label": "Carregando" }, h("div"), h("div"), h("div"), h("div")));
   ROOT.replaceChildren(h("div", { class: "shell" }, nav, main));
   try {
     main.replaceChildren(...(await ROUTES[key][1]()));

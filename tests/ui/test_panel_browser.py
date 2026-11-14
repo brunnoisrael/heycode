@@ -74,14 +74,19 @@ def nav(page, label, title=None):
     expect(page.locator("main h1")).to_have_text(title or label)
 
 
-def test_01_cria_a_conta_e_cai_na_lista_vazia_de_computadores(page, server):
+def test_01_cria_a_conta_e_cai_na_visao_geral_vazia(page, server):
     page.goto(page.base + "/app")
     page.get_by_role("button", name="Criar conta").first.click()
     page.fill("#email", EMAIL)
     page.fill("#pass", PASSWORD)
     page.locator("form button[type=submit]").click()
     page.wait_for_selector("main h1")
-    assert page.inner_text("main h1") == "Computadores"
+    assert page.inner_text("main h1") == "Visão geral"
+    assert page.get_attribute("nav a[aria-current=page]", "href") == "#/inicio"
+    assert [t.strip().split()[0] for t in page.locator(".stat-value").all_inner_texts()] == ["0", "0", "0"]
+    assert page.locator(".steps li.done").count() == 0 and "Nada registrado ainda" in page.inner_text("main")
+    assert page.locator("nav svg.icon").count() == 7 and EMAIL in page.inner_text(".who")
+    nav(page, "Computadores")
     assert "Nenhum computador pareado" in page.inner_text("main")
     assert page.get_attribute("nav a[aria-current=page]", "href") == "#/computadores"
 
@@ -124,6 +129,16 @@ def test_05_computador_aparece_offline_e_pode_ser_renomeado(page):
     page.once("dialog", lambda d: d.accept("Notebook da sala"))
     page.get_by_role("button", name="Renomear").click()
     expect(page.locator(".card .name")).to_contain_text("Notebook da sala")
+
+
+def test_05b_visao_geral_resume_computadores_passos_e_atividade(page):
+    nav(page, "Visão geral")
+    values = [t.strip().split()[0] for t in page.locator(".stat-value").all_inner_texts()]
+    assert values == ["0", "0", "0"] and "de 1" in page.inner_text(".stats")  # um computador pareado, offline
+    assert page.locator(".steps li.done").count() == 1
+    expect(page.locator(".feed")).to_contain_text("Painel: renomeou um computador")
+    page.get_by_role("button", name="Ver o rastro completo").click()
+    expect(page.locator("main h1")).to_have_text("Rastro")
 
 
 def test_06_dispositivo_novo_precisa_de_autorizacao_e_vira_rastro(page, server):
