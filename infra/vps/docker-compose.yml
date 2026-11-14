@@ -1,0 +1,45 @@
+# Relay HeyCode em uma VM unica (ADR 0054): o relay + o Caddy (HTTPS automatico).
+# Uso (no servidor, dentro de /opt/heycode/infra/vps):  docker compose --env-file relay.env up -d --build
+services:
+  relay:
+    build:
+      context: ../..
+      dockerfile: infra/Dockerfile
+    image: heycode-relay:local
+    restart: unless-stopped
+    env_file: relay.env # RELAY_DB, ALEXA_SKILL_ID, OAUTH_*  (arquivo fora do git, modo 600)
+    volumes:
+      - relay_data:/data
+    expose:
+      - "8080" # so o Caddy alcanca; NUNCA publique esta porta (ADR 0040: a origem vem do X-Forwarded-For)
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3).status == 200 else 1)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      relay:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificados: nao apague
+      - caddy_config:/config
+
+volumes:
+  relay_data:
+  caddy_data:
+  caddy_config:

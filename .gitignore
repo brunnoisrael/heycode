@@ -13,3 +13,5 @@ coverage.json
 dist/
 build/
 *.egg-info/
+
+infra/vps/relay.env

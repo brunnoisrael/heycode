@@ -8,6 +8,8 @@ COPY protocol ./protocol
 RUN pip install --no-cache-dir -c constraints.txt .
 
 ENV RELAY_DB=/data/relay.db
+# a pasta precisa ser do usuario que roda o relay ANTES do VOLUME: o volume novo herda esse dono
+RUN mkdir -p /data && chown nobody /data
 VOLUME ["/data"]
 EXPOSE 8080
 USER nobody
