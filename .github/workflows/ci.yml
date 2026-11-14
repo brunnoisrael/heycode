@@ -156,7 +156,11 @@ jobs:
           python -m venv "$RUNNER_TEMP/venv"
           if [ -d "$RUNNER_TEMP/venv/Scripts" ]; then BIN="$RUNNER_TEMP/venv/Scripts"; else BIN="$RUNNER_TEMP/venv/bin"; fi
           "$BIN/python" -m pip install -c constraints.txt dist/*.whl
-          export HEYCODE_HOME="$RUNNER_TEMP/heycode-home"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export HEYCODE_HOME="$USERPROFILE/heycode-ci-$GITHUB_RUN_ID"
+          else
+            export HEYCODE_HOME="$RUNNER_TEMP/heycode-home"
+          fi
           "$BIN/heycode" --version
           "$BIN/python" -c "from heycode.templates import template_root; print(template_root())"
           "$BIN/heycode" init
