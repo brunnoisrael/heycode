@@ -37,22 +37,28 @@ class PairingService:
         self._failures: dict[str, list[float]] = {}  # origem -> instantes das falhas
 
     def issue(self, account_id: str) -> str:
+        self._sweep(self._clock())
         code = "".join(secrets.choice(ALPHABET) for _ in range(CODE_LEN))
         self._codes[code] = (account_id, self._clock() + TTL)
         return code
 
+    def _sweep(self, now: float) -> None:
+        """Descarta o que venceu, para a memoria nao crescer com codigos e tentativas abandonados."""
+        self._codes = {c: e for c, e in self._codes.items() if e[1] >= now}
+        self._pending = {i: p for i, p in self._pending.items() if p.expires_at >= now}
+        self._failures = {s: r for s, ts in self._failures.items() if (r := [t for t in ts if now - t <= TTL])}
+
     def _locked(self, source: str, now: float) -> bool:
-        recent = [t for t in self._failures.get(source, []) if now - t <= TTL]
-        self._failures[source] = recent
-        return len(recent) >= MAX_FAILURES
+        return len(self._failures.get(source, [])) >= MAX_FAILURES
 
     def redeem(self, code: str, public_key: str, source: str) -> Pending:
         now = self._clock()
+        self._sweep(now)
         if self._locked(source, now):
             raise IdentityError("locked", "muitas tentativas")
         entry = self._codes.pop(code, None)  # uso unico: some ao primeiro resgate
         if entry is None or entry[1] < now:
-            self._failures[source].append(now)
+            self._failures.setdefault(source, []).append(now)
             raise IdentityError("invalid_code", "codigo invalido ou expirado")
         account_id = entry[0]
         digest = hashlib.sha256(f"{code}:{public_key}".encode()).digest()

@@ -4,12 +4,14 @@ import hashlib
 import re
 import secrets
 from collections.abc import Callable
+from threading import BoundedSemaphore
 
 from argon2 import PasswordHasher
 from argon2.exceptions import VerificationError
 
 SESSION_TTL = 12 * 3600.0
 MIN_PASSWORD = 10
+MAX_HASHING = 2  # cada Argon2id usa ~64 MiB: sem teto, logins simultaneos esgotam a memoria da VM
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -28,6 +30,7 @@ class Accounts:
         self._repo = repo
         self._clock = clock
         self._hasher = PasswordHasher()  # argon2id por padrao
+        self._slots = BoundedSemaphore(MAX_HASHING)
         self._dummy = self._hasher.hash("senha-ficticia-para-tempo-constante")
 
     def register(self, email: str, password: str) -> str:
@@ -36,7 +39,9 @@ class Accounts:
             raise AccountError("invalid_email", "e-mail invalido")
         if len(password) < MIN_PASSWORD:
             raise AccountError("weak_password", f"senha com ao menos {MIN_PASSWORD} caracteres")
-        aid = self._repo.create_account(email, self._hasher.hash(password), self._clock())
+        with self._slots:
+            hashed = self._hasher.hash(password)
+        aid = self._repo.create_account(email, hashed, self._clock())
         if aid is None:
             raise AccountError("email_taken", "e-mail ja cadastrado")
         return aid
@@ -46,7 +51,8 @@ class Accounts:
         account = self._repo.get_account_by_email(email.strip().lower())
         stored = account["password_hash"] if account else self._dummy  # tempo parecido nos dois casos
         try:
-            self._hasher.verify(stored, password)
+            with self._slots:
+                self._hasher.verify(stored, password)
             ok = account is not None
         except VerificationError:
             ok = False
