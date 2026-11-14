@@ -64,6 +64,9 @@ SECURITY_HEADERS = {
     "Content-Security-Policy": API_CSP,
 }
 CLOSE_UNAUTHORIZED = 4401
+CLOSE_TOO_MANY = 4429
+WS_AUTH_TIMEOUT = 10.0  # segundos para o primeiro envelope
+MAX_WAITING_SOCKETS = 64  # conexoes abertas que ainda nao se autenticaram
 
 
 class Credentials(BaseModel):
@@ -156,6 +159,7 @@ def create_app(
     oauth: OAuthConfig | None = None,
     alexa: AlexaVerifier | None = None,
     ip_limit: int = IP_LIMIT,
+    ws_auth_timeout: float = WS_AUTH_TIMEOUT,
 ) -> FastAPI:
     # sem /docs, /redoc nem /openapi.json: o mapa das rotas nao fica publico
     app = FastAPI(title="HeyCode relay", docs_url=None, redoc_url=None, openapi_url=None)
@@ -172,6 +176,9 @@ def create_app(
     probe_limiter = RateLimiter(clock, limit=30, window=60.0)  # rotas sem login: pareamento e token OAuth
     code_limiter = RateLimiter(clock, limit=10, window=60.0)  # por conta
     alexa_limiter = RateLimiter(clock, limit=600, window=60.0)  # a Amazon fala por poucos IPs compartilhados
+    handshake_limiter = RateLimiter(clock, limit=20, window=60.0)  # por IP
+    message_limiter = RateLimiter(clock, limit=240, window=60.0)  # por instalacao conectada
+    waiting = {"count": 0}
     bans = BanList(clock)
     names: OrderedDict[str, str] = OrderedDict()
     done: OrderedDict[str, str] = OrderedDict()
@@ -789,12 +796,22 @@ def create_app(
 
     @app.websocket("/v1/connect")
     async def connect(ws: WebSocket) -> None:
+        source = ws.client.host if ws.client else "desconhecida"
         await ws.accept()
-        try:
-            inst = authenticate_envelope(await ws.receive_json())
+        if bans.remaining(source) or not handshake_limiter.allow(source) or waiting["count"] >= MAX_WAITING_SOCKETS:
+            await ws.close(code=CLOSE_TOO_MANY)
+            return
+        waiting["count"] += 1
+        try:  # quem abre e fica calado nao segura a conexao: ha prazo para o primeiro envelope
+            inst = authenticate_envelope(await asyncio.wait_for(ws.receive_json(), ws_auth_timeout))
+        except TimeoutError:
+            await ws.close(code=CLOSE_UNAUTHORIZED)
+            return
         except (WebSocketDisconnect, ValueError):
             return
-        if inst is None:
+        finally:
+            waiting["count"] -= 1
+        if inst is None:  # sem falta para o banimento: uma maquina revogada que insiste nao tranca o painel do dono
             await ws.close(code=CLOSE_UNAUTHORIZED)
             return
         iid = inst["id"]
@@ -804,6 +821,9 @@ def create_app(
             await ws.send_json(frame("status", iid, {"state": "idle"}))
             while True:
                 msg = await ws.receive_json()
+                if not message_limiter.allow(iid):
+                    await ws.close(code=CLOSE_TOO_MANY)
+                    return
                 if authenticate_envelope(msg, expected=iid) is None:
                     await ws.close(code=CLOSE_UNAUTHORIZED)
                     return
