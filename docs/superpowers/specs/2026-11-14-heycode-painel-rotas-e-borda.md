@@ -48,6 +48,7 @@ Painel:
 9. **Memória do pareamento**: `done` e `names` com teto; códigos e falhas expirados são varridos.
 10. **Cabeçalhos em toda resposta**: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Permissions-Policy` vazia; CSP `default-src 'none'; frame-ancestors 'none'` nas respostas que não são do painel; o formulário OAuth ganha CSP própria e `no-store`.
 11. **Sem documentação automática em produção**: `/docs`, `/redoc` e `/openapi.json` desligados.
+12. **Argon2 com teto de paralelismo**: no máximo 2 cálculos de senha ao mesmo tempo (cada um usa ~64 MiB); os demais esperam a vez. Achado durante a implementação.
 
 Critério de pronto: teste para cada item; a suíte do relay segue verde.
 

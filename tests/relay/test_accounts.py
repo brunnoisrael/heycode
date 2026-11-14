@@ -98,3 +98,37 @@ def test_token_invalido_ou_vazio_nao_autentica(acc):
     assert acc.authenticate("") is None
     assert acc.authenticate("inventado") is None
     assert acc.authenticate(None) is None
+
+
+def test_no_maximo_dois_argon2_ao_mesmo_tempo():
+    import threading
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    from heycode.relay.accounts import MAX_HASHING, Accounts
+    from heycode.relay.repo import SqliteRepository
+
+    accounts = Accounts(SqliteRepository(":memory:"), lambda: 1000.0)
+    lock, running, peak = threading.Lock(), [0], [0]
+
+    class SlowHasher:
+        def verify(self, stored, password):
+            with lock:
+                running[0] += 1
+                peak[0] = max(peak[0], running[0])
+            time.sleep(0.02)
+            with lock:
+                running[0] -= 1
+            return True
+
+    accounts._hasher = SlowHasher()
+
+    def attempt(_):
+        try:
+            accounts.check_credentials("ninguem@exemplo.com", "qualquer-senha")
+        except Exception:  # noqa: BLE001 - conta inexistente: so o paralelismo interessa
+            pass
+
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        list(pool.map(attempt, range(24)))
+    assert peak[0] == MAX_HASHING
