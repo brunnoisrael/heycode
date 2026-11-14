@@ -29,18 +29,17 @@ from heycode.relay.alexa_verify import AlexaVerifier, AlexaVerifyError
 from heycode.relay.hub import Hub
 from heycode.relay.limits import BanList, RateLimiter, day_key
 from heycode.relay.oauth import OAuthConfig, OAuthError, OAuthServer
+from heycode.relay.plans import PAID, limits_for, tiers
 from heycode.relay.shortcuts import normalize
 from heycode.relay.voice import BridgeUnavailable
 from heycode.relay.voice import handle as handle_voice
 
 __all__ = ["OAuthConfig", "create_app"]
 
-MAX_INSTALLATIONS = 2
 DAILY_QUOTA = 200
 SESSION_COOKIE = "hc_session"
 SAFE_METHODS = ("GET", "HEAD", "OPTIONS")
 MAX_PENDING_DEVICES = 10
-MAX_SHORTCUTS = 30
 MAX_TRACKED_PAIRINGS = 1000
 PANEL_DIR = Path(__file__).parent / "panel"
 PANEL_FILES = {"panel.js": "text/javascript; charset=utf-8", "panel.css": "text/css; charset=utf-8"}  # lista fechada
@@ -143,6 +142,17 @@ class ShortcutBody(BaseModel):
         if not self.instruction:
             raise ValueError("instrucao vazia")
         return self
+
+
+class InterestBody(BaseModel):
+    tier: str | None = Field(default=None, max_length=20)
+
+    @field_validator("tier")
+    @classmethod
+    def _known(cls, v: str | None) -> str | None:
+        if v is not None and v not in PAID:
+            raise ValueError("nivel desconhecido")
+        return v
 
 
 class SkillRequest(BaseModel):
@@ -275,8 +285,12 @@ def create_app(
             path="/",
         )
 
+    def limits(account_id: str) -> dict:
+        """Limites do nivel de apoio da conta (ADR 0059)."""
+        return limits_for(repo.get_plan(account_id)["plan"], daily_quota)
+
     def complete(pending_id: str, binding) -> dict:
-        if repo.count_installations(binding.account_id) >= MAX_INSTALLATIONS:
+        if repo.count_installations(binding.account_id) >= limits(binding.account_id)["installations"]:
             raise HTTPException(409, "quota_installations")
         iid = repo.create_installation(
             binding.account_id, binding.public_key, names.pop(pending_id, "computador"), clock()
@@ -593,7 +607,7 @@ def create_app(
 
     @app.post("/v1/commands", status_code=201)
     def create_command(body: ShortcutBody, account_id: str = Depends(current_account)) -> dict:
-        if repo.count_shortcuts(account_id) >= MAX_SHORTCUTS:
+        if repo.count_shortcuts(account_id) >= limits(account_id)["shortcuts"]:
             raise HTTPException(409, "quota_commands")
         if _taken(account_id, body):
             raise HTTPException(409, "name_taken")
@@ -650,6 +664,24 @@ def create_app(
             raise HTTPException(404, "nao encontrado")
         repo.set_default_installation(account_id, body.installation_id)
         audit(account_id, "painel:instalacao_padrao", installation_id=body.installation_id)
+        return Response(status_code=204)
+
+    # --- niveis de apoio (ADR 0059): ver e pedir; conceder e so por comando no servidor ---
+
+    @app.get("/v1/plan")
+    def plan_status(account_id: str = Depends(current_account)) -> dict:
+        current = repo.get_plan(account_id)
+        usage = {
+            "installations": repo.count_installations(account_id),
+            "shortcuts": repo.count_shortcuts(account_id),
+            "daily_quota": repo.get_usage(account_id, day_key(clock())),
+        }
+        return {**current, "limits": limits(account_id), "usage": usage, "tiers": tiers(daily_quota)}
+
+    @app.put("/v1/plan/interest", status_code=204)
+    def plan_interest(body: InterestBody, account_id: str = Depends(current_account)) -> Response:
+        repo.set_plan_interest(account_id, body.tier, clock())
+        audit(account_id, "painel:interesse_apoio", label=body.tier or "retirado")
         return Response(status_code=204)
 
     @app.delete("/v1/account", status_code=204)
@@ -734,7 +766,7 @@ def create_app(
         async def call(method: str, path: str, body: dict | None = None) -> dict:
             """Chama a ponte do computador pelo canal assinado; falhas viram BridgeUnavailable."""
             outcome["called"] = True
-            if repo.bump_usage(account_id, day_key(clock())) > daily_quota:
+            if repo.bump_usage(account_id, day_key(clock())) > limits(account_id)["daily_quota"]:
                 outcome["result"] = "cota"
                 raise BridgeUnavailable("cota", speech="Voce atingiu o limite diario de pedidos. Tente amanha.")
             payload: dict = {"method": method, "path": path}
@@ -862,7 +894,7 @@ def create_app(
             if len(owned) > 1:
                 raise HTTPException(409, "choose_installation")
             inst = owned[0]
-        if repo.bump_usage(account_id, day_key(clock())) > daily_quota:
+        if repo.bump_usage(account_id, day_key(clock())) > limits(account_id)["daily_quota"]:
             raise HTTPException(429, "quota_requests")
         payload = {"text": body.text, "destination": body.destination}
         if body.agent:
