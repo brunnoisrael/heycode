@@ -5,6 +5,9 @@ WORKDIR /app
 COPY pyproject.toml constraints.txt README.md ./
 COPY src ./src
 COPY protocol ./protocol
+# o wheel embute estas pastas (force-include do pyproject, ADR 0025): sem elas o pip install falha
+COPY scripts/gates ./scripts/gates
+COPY .githooks ./.githooks
 RUN pip install --no-cache-dir -c constraints.txt .
 
 ENV RELAY_DB=/data/relay.db

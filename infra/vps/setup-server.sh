@@ -10,10 +10,16 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 export DEBIAN_FRONTEND=noninteractive
+# As imagens da Oracle trazem o iptables-persistent com regras que barram tudo fora do 22. Ele conflita com o ufw
+# (no Ubuntu 24.04 o ufw "Breaks" iptables-persistent): remova-o antes e deixe o ufw cuidar do firewall.
+apt-get purge -y iptables-persistent netfilter-persistent 2>/dev/null || true
+iptables -F INPUT 2>/dev/null || true
+ip6tables -F INPUT 2>/dev/null || true
+
 apt-get update -y
 apt-get upgrade -y
 apt-get install -y --no-install-recommends \
-  docker.io docker-compose-v2 ufw unattended-upgrades ca-certificates curl git sqlite3 iptables-persistent
+  docker.io docker-compose-v2 ufw unattended-upgrades ca-certificates curl git sqlite3
 
 # --- atualizacoes de seguranca automaticas ---
 cat >/etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
@@ -42,9 +48,6 @@ EOF
 sshd -t && systemctl reload ssh
 
 # --- firewall ---
-# As imagens da Oracle trazem regras de iptables que barram tudo fora do 22: troque-as por ufw.
-iptables -F INPUT 2>/dev/null || true
-netfilter-persistent save >/dev/null 2>&1 || true
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp
