@@ -43,6 +43,10 @@ MAX_PENDING_DEVICES = 10
 MAX_TRACKED_PAIRINGS = 1000
 PANEL_DIR = Path(__file__).parent / "panel"
 PANEL_FILES = {"panel.js": "text/javascript; charset=utf-8", "panel.css": "text/css; charset=utf-8"}  # lista fechada
+SITE_DIR = Path(__file__).parent / "site"  # paginas publicas (ADR 0059)
+SITE_PAGES = {"/": "index.html", "/apoie": "apoie.html"}
+SITE_FILES = {"site.js": "text/javascript; charset=utf-8", "site.css": "text/css; charset=utf-8"}  # lista fechada
+SITE_CACHE = "public, max-age=300"  # curto: a Cloudflare na frente segura repeticao sem prender uma versao antiga
 PANEL_CSP = (
     "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; "
     "font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
@@ -445,6 +449,27 @@ def create_app(
         if media is None:
             raise HTTPException(404, "nao encontrado")
         return Response((PANEL_DIR / name).read_bytes(), media_type=media, headers=_panel_headers())
+
+    # --- site publico (ADR 0059): paginas estaticas, mesma CSP do painel, nada de cookie ---
+
+    def _site_file(name: str, media: str) -> Response:
+        path = SITE_DIR / name
+        if not path.is_file():
+            raise HTTPException(404, "nao encontrado")
+        return Response(path.read_bytes(), media_type=media, headers={**_panel_headers(), "Cache-Control": SITE_CACHE})
+
+    def _site_page(request: Request) -> Response:
+        return _site_file(SITE_PAGES[request.url.path], "text/html; charset=utf-8")
+
+    for _path in SITE_PAGES:
+        app.get(_path, include_in_schema=False)(_site_page)
+
+    @app.get("/site/{name}", include_in_schema=False)
+    def site_static(name: str) -> Response:
+        media = SITE_FILES.get(name)
+        if media is None:
+            raise HTTPException(404, "nao encontrado")
+        return _site_file(name, media)
 
     # --- account linking (ADR 0041) ---
 
