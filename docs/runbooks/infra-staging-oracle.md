@@ -10,8 +10,9 @@ Registro do que existe hoje (2026-11-14), de como foi criado e das armadilhas qu
 | IP público | `152.67.63.70` (efêmero: se a VM for recriada, o IP muda e o DNS precisa seguir) |
 | Rede | VCN `agent-vcn` (preexistente), sub-rede pública; lista de segurança com entrada em 22, 80 e 443 |
 | Firewall local | `ufw` com 22, 80 e 443 |
-| DNS | Cloudflare, zona `heycode.dev.br`: `staging-api` e `staging-app` (`A` para o IP, **somente DNS**, nuvem cinza). `ponte.` (túnel `roomcode`, proxied) é de outra instalação e não se toca |
-| HTTPS | Caddy (Let's Encrypt), renovação automática; volume `heycode_caddy_data` guarda os certificados |
+| DNS | Cloudflare, zona `heycode.dev.br`: `staging-api` e `staging-app` (`A` para o IP, **com proxy**, nuvem laranja; conferido em 2026-11-14: os nomes resolvem para IPs da Cloudflare e a resposta traz `Server: cloudflare`). `ponte.` (túnel `roomcode`, proxied) é de outra instalação e não se toca |
+| Origem | Fechada para fora da Cloudflare: conferido em 2026-11-14 que `https://` direto no IP da VM dá tempo esgotado |
+| HTTPS | Borda: certificado da Cloudflare. Origem: Caddy (Let's Encrypt), renovação automática; volume `heycode_caddy_data` guarda os certificados |
 | Serviços | `docker compose` em `/opt/heycode/infra/vps` (projeto `heycode`): `relay` e `caddy` |
 | Segredos | `/opt/heycode/infra/vps/relay.env` (modo 600, só no servidor): `OAUTH_CLIENT_SECRET` gerado lá; o mesmo valor está no account linking do console da Amazon |
 | Backup | timer `heycode-backup.timer` (03:17 UTC, `Persistent`), arquivos em `/var/backups/heycode` (14 mais recentes) |
