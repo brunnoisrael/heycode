@@ -1,5 +1,7 @@
 # Esteira obrigatória de agentes: spec
 
+> Atualização de 2026-11-14: o ADR 0061 removeu os gates de revisão de PR, e a spec `2026-11-14-fluxo-centralizado-sem-pr.md` com o ADR 0064 substitui as regras abaixo sobre G12, evidência manual, revisão e assinatura. As demais partes históricas permanecem para rastreabilidade.
+
 Data: 2026-11-13. Status: aprovada pelo dono em 2026-11-13 (dono longe do computador, autorizou o agente a registrar a aprovação: "pode aprovar pra mim e segue pra o restante"; "mas eu permito, estou longe").
 
 Plano de programa: `docs/superpowers/plans/2026-11-13-heycode-publicavel-e-esteira-de-agentes.md` (trilha P0). Visão: `docs/ROADMAP-HEYCODE.md`.

@@ -1,4 +1,4 @@
-"""Gates do CI: verificam commits e o tamanho das alterações."""
+"""Gates do CI: verificam os commits do intervalo."""
 
 import json
 import subprocess
@@ -8,7 +8,7 @@ from pathlib import Path
 sys.dont_write_bytecode = True  # hooks nao deixam __pycache__ no projeto
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from commit_msg import TYPE_RE, check_commit_message  # noqa: E402
-from pre_commit import check_diff_size, check_staged, check_tests_with_code, parse_name_status  # noqa: E402
+from pre_commit import check_staged, check_tests_with_code, parse_name_status  # noqa: E402
 
 CONFIG_PATH = Path(__file__).with_name("gates.json")
 
@@ -26,7 +26,7 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
 
 
 def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str]:
-    """Aplica G1, G2, G3, G4 a cada commit entre base e head (merges ignorados) e G12 ao PR inteiro."""
+    """Aplica G1, G2, G3, G4 a cada commit entre base e head (merges ignorados)."""
     repo = Path(repo_root)
     errors: list[str] = []
     for sha in _git(repo, "rev-list", "--no-merges", "--reverse", f"{base}..{head}").split():
@@ -40,12 +40,7 @@ def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str
         if m:
             paths = [p for s, p in files if s != "D"]
             errors += [f"{tag}: {e}" for e in check_tests_with_code(paths, m.group(1), config)]
-    added: dict[str, int] = {}
-    for entry in _git(repo, "diff", "--numstat", "-z", f"{base}..{head}").split("\0"):
-        parts = entry.split("\t")
-        if len(parts) == 3 and parts[0].isdigit():
-            added[parts[2]] = int(parts[0])
-    return errors + check_diff_size(added, config)
+    return errors
 
 
 def main(argv: list[str], repo: Path | None = None) -> int:

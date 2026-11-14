@@ -107,9 +107,10 @@ def _run_script(name, monkeypatch, argv=None):
 
 
 def test_evidence_script(monkeypatch):
-    monkeypatch.setenv("BODY", "## Evidência\n\n" + FENCE + "\n$ x\nsaida real\n" + FENCE + "\n")
+    monkeypatch.setenv("GATES_RESULT", "success")
+    monkeypatch.setenv("TESTS_RESULT", "success")
     assert _run_script("evidence.py", monkeypatch) == 0
-    monkeypatch.setenv("BODY", "sem secao")
+    monkeypatch.setenv("GATES_RESULT", "failure")
     assert _run_script("evidence.py", monkeypatch) == 1
 
 

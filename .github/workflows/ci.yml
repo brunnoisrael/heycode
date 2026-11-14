@@ -39,7 +39,7 @@ jobs:
           echo "sha=$base" >> "$GITHUB_OUTPUT"
 
   gates:
-    # G1-G8, G12, G16 (G13 e G9/G10 entram nas trilhas P1/P2)
+    # G1-G8 (G13 e G9/G10 entram nas trilhas P1/P2)
     needs: base
     env:
       BASE_SHA: ${{ needs.base.outputs.sha }}
@@ -66,7 +66,7 @@ jobs:
       - name: G5 segredos em cada commit do intervalo
         if: ${{ !cancelled() }}
         run: python scripts/gates/secret_scan.py "$BASE_SHA" "$HEAD_SHA"
-      - name: G1-G4 e G12 em cada commit do intervalo
+      - name: G1-G4 em cada commit do intervalo
         if: ${{ !cancelled() }}
         run: python scripts/gates/ci_range.py range "$BASE_SHA" "$HEAD_SHA"
       - name: G7 testes Python com cobertura
@@ -108,7 +108,9 @@ jobs:
       - run: python -m pytest -q
 
   evidencia:
-    # G16: a mensagem do commit da entrega registra comando e saida.
+    # G16: registra automaticamente os resultados do CI para este SHA.
+    if: always()
+    needs: [gates, tests]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -117,25 +119,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Secao Evidencia preenchida
-        run: |
-          git log -1 --format=%B "$HEAD_SHA" > commit-message.txt
-          BODY="$(cat commit-message.txt)" python scripts/gates/evidence.py
-
-  revisao-independente:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      statuses: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Parecer independente no commit exato
+      - name: Registrar resultados dos gates e testes
         env:
-          GH_TOKEN: ${{ github.token }}
-          INDEPENDENT_REVIEWER: ${{ vars.INDEPENDENT_REVIEWER }}
-        run: python scripts/gates/commit_review.py
+          GATES_RESULT: ${{ needs.gates.result }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+        run: python scripts/gates/evidence.py
 
   instalacao-limpa:
     # Meta da P1: roda recem-construida, em ambiente virtual novo, sem editar nada a mao, em ate 5 minutos

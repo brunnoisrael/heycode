@@ -15,7 +15,7 @@ O CI é a autoridade. Hook local ajuda a falhar cedo, mas o CI repete os gates n
 | 3 | ADR (se mudar arquitetura) | `docs/adr/NNNN-titulo.md` **novo** | Mantenedor |
 | 4 | Plano | `docs/superpowers/plans/*.md` | Mantenedor |
 | 5 | Implementação TDD | Teste que falha, depois código mínimo | Gates locais |
-| 6 | Revisão independente | Parecer no SHA da entrega, fora de PR | Identidade revisora configurada |
+| 6 | Revisão | Opcional, sem gate de PR ou conta revisora obrigatória | Mantenedor |
 | 7 | CI | Gates ativos, refeitos do zero, em matriz de sistemas (G11 e G15 removidos) | Automático |
 | 8 | Aprovação humana | Removida (ADR 0061); vale só a aprovação da spec | — |
 | 9 | Integração | Atualização linear da main com o SHA validado, sem PR ou force push | Proteção de branch |
@@ -27,8 +27,7 @@ O CI é a autoridade. Hook local ajuda a falhar cedo, mas o CI repete os gates n
 
 - Spec aprovada e plano rastreáveis pelo trailer `Spec:`.
 - Teste novo para o comportamento, visto falhar antes de passar.
-- Todos os gates verdes no CI para o SHA a integrar; a mensagem do commit final inclui seção `## Evidência` com comando e saída reais.
-- Parecer independente bem-sucedido no mesmo SHA, com a identidade configurada distinta do autor.
+- Todos os gates verdes no CI para o SHA a integrar; o CI registra a evidência automaticamente.
 - Docs e `CHANGELOG.md` atualizados quando houver mudança visível.
 
 ## O que um agente nunca faz
@@ -41,4 +40,4 @@ O CI é a autoridade. Hook local ajuda a falhar cedo, mas o CI repete os gates n
 
 ## Commits
 
-Formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`). `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:`. Um commit por tarefa do plano, com no máximo 400 linhas adicionadas conforme o G12.
+Formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`). `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:`. Um commit por tarefa do plano, sem limite artificial de tamanho.

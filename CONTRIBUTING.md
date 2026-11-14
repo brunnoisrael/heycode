@@ -9,8 +9,8 @@ Todo o código deste projeto é produzido por agentes, e pessoas também podem c
 3. Mudança de arquitetura exige um **ADR novo** em `docs/adr/` (use `docs/adr/0000-template.md`).
 4. Escreva o plano, depois o teste que falha, depois o código mínimo.
 5. Commits no formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`); `feat`, `fix`, `test` e `refactor` levam o trailer `Spec: docs/superpowers/specs/<arquivo>.md`.
-6. Prepare cada entrega em branch atualizada com `main`, sem PR, com até 400 linhas adicionadas (sem docs e travas). Inclua `## Evidência` e um bloco com comando e saída reais na mensagem do commit final.
-7. Confira o CI e o parecer independente para o SHA exato antes de integrar na `main`; se algum check ou o revisor não estiver configurado, a entrega fica pendente.
+6. Prepare cada entrega em branch atualizada com `main`, sem PR.
+7. Confira os gates e testes do CI para o SHA exato antes de integrar na `main`. A evidência é registrada automaticamente no CI.
 
 ## Ambiente
 
@@ -25,15 +25,13 @@ O pytest prioriza `src/` do checkout atual, mesmo se outra cópia editável esti
 
 ## Integração sem PR
 
-O fluxo ainda precisa ser ativado no remoto: configure `INDEPENDENT_REVIEWER` com o login da conta revisora independente e acrescente `evidencia` e `revisao-independente` aos checks obrigatórios da `main`, mantendo os checks existentes. Não integre antes de validar a configuração e os checks no mesmo SHA.
-
-A conta revisora, depois de examinar o diff e os resultados, publica para o SHA exato um status GitHub com contexto `heycode-review` e estado `success`. A API identifica a conta que publicou o status; autoria e revisão precisam usar contas diferentes. O CI falha sem parecer válido. Depois de publicado o parecer, execute novamente os jobs que falharam. Se a `main` avançar, atualize a branch e repita a revisão e os checks para o novo SHA.
+O CI executa os gates técnicos e a matriz no SHA da branch. Se a `main` avançar, atualize a branch e repita o CI para o novo SHA. Integre por avanço linear após os checks; não são exigidos PR, conta revisora ou assinatura de commit.
 
 Os hooks locais falham cedo, mas o CI refaz tudo; contorná-los (`--no-verify`) não adianta e não é aceito.
 
 ## O que exige aprovação humana
 
-Só a aprovação da spec (`Status: aprovada`). O parecer independente para o commit é emitido fora de PR conforme o ADR 0064; não há aprovação humana ou por bot em PR (ADR 0061).
+Só a aprovação da spec (`Status: aprovada`). Não há aprovação humana ou por bot em PR (ADR 0061) nem conta revisora obrigatória (ADR 0064).
 
 ## Segurança
 

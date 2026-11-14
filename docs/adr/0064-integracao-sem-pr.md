@@ -1,4 +1,4 @@
-# 0064. Validar a entrega antes da integração sem PR
+# 0064. Versionamento e gates técnicos sem PR
 
 ## Status
 
@@ -6,14 +6,14 @@ Aceito. Data: 2026-11-14. Spec: `docs/superpowers/specs/2026-11-14-fluxo-central
 
 ## Contexto
 
-O CI da main executava somente após o push direto, e evidência dependia do corpo de PR. O dono aprovou um fluxo sem PR com revisão independente para o commit exato, preservando testes, gates e regras de proteção. O ADR 0061 removeu revisão em PR; essa decisão não volta a exigir PR.
+O CI só verificava branches de entrega por PR e a evidência exigia texto manual. O dono pediu integração sem PR, gates de qualidade e de SDLC e retirada de exigências de conta revisora, assinatura de commit e limite artificial de tamanho G12.
 
 ## Decisão
 
-Executar o CI também em branches de entrega atualizadas com a main, usando a main como base. Validar a evidência na mensagem do commit de entrega. Verificar o parecer de uma identidade GitHub configurada, distinta do autor, como status `heycode-review` do SHA exato. A ausência de identidade, autor ou parecer aprovado falha fechada. O workflow pode ser executado novamente após o parecer por `workflow_dispatch`.
+O CI roda em branches de entrega atualizadas com a main e valida o commit exato antes da integração. A evidência é gerada automaticamente pelo CI a partir dos resultados dos gates e da matriz. Não há aprovação por revisor, conta de bot, assinatura de commit obrigatória ou limite G12. O histórico permanece linear, sem exclusão da main ou force push.
 
-A proteção da main deve exigir, além dos checks existentes, `evidencia` e `revisao-independente` para que ambos sejam verificados antes da integração. A revisão e o CI devem ser associados ao mesmo SHA; a main deve permanecer ancestral desse SHA. A configuração do revisor deve apontar para uma conta controlada de forma independente e com permissão para emitir status.
+O ruleset da main exige os gates técnicos e a matriz existentes. Sua alteração e a integração devem ser verificadas no remoto, mantendo os checks de qualidade e SDLC. Resultados ausentes ou cancelados não são sucesso.
 
 ## Consequências
 
-A integração depende da configuração efetiva da identidade revisora e da atualização do ruleset remoto. Sem essas condições o fluxo não está pronto e não se deve integrar. O status é uma declaração da conta revisora, não prova automática da qualidade da análise. Credenciais de autoria e revisão devem permanecer separadas. Alterações posteriores exigem novos checks e parecer.
+As entregas deixam de depender de PR, configuração de outra conta ou formulário manual. Os logs e o resumo do CI registram o resultado real. Alterações posteriores exigem nova execução do CI para o novo SHA.

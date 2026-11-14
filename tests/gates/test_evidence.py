@@ -1,40 +1,30 @@
-from evidence import check_evidence
-
-FENCE = chr(96) * 3
+from evidence import check_evidence, main
 
 
-def body(evidence, tail="\n## Checklist\n- [ ] x\n"):
-    return "## O que muda\n\nx\n\n## Evidência\n\n" + evidence + tail
+def test_evidencia_com_gates_e_matriz_aprovados():
+    assert check_evidence("success", "success") == []
 
 
-def block(text):
-    return FENCE + "\n" + text + "\n" + FENCE + "\n"
+def test_falha_se_gates_nao_passaram():
+    assert check_evidence("failure", "success")
 
 
-def test_evidencia_com_comando_e_saida_passa():
-    assert check_evidence(body(block("$ python -m pytest -q\n638 passed in 71s"))) == []
+def test_falha_se_matriz_nao_passou():
+    assert check_evidence("success", "failure")
 
 
-def test_secao_ausente_falha():
-    assert check_evidence("texto qualquer")
+def test_ausencia_ou_cancelamento_falham():
+    assert check_evidence("", "success")
+    assert check_evidence("success", "cancelled")
+    assert check_evidence("skipped", "success")
 
 
-def test_secao_sem_bloco_de_codigo_falha():
-    assert check_evidence(body("rodei os testes e passaram todos, confia\n"))
-
-
-def test_bloco_so_com_o_comando_do_modelo_falha():
-    assert check_evidence(body(block("$ python -m pytest -q")))
-
-
-def test_secao_vazia_falha():
-    assert check_evidence(body(""))
-
-
-def test_aceita_heading_sem_acento():
-    text = "## Evidencia\n\n" + block("$ x\nok ok ok ok ok ok")
-    assert check_evidence(text) == []
-
-
-def test_corpo_vazio_falha():
-    assert check_evidence("")
+def test_resumo_do_ci_e_gerado_automaticamente(tmp_path, monkeypatch):
+    summary = tmp_path / "summary"
+    monkeypatch.setenv("GATES_RESULT", "success")
+    monkeypatch.setenv("TESTS_RESULT", "success")
+    monkeypatch.setenv("GITHUB_SHA", "abc123")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert main() == 0
+    assert "abc123" in summary.read_text(encoding="utf-8")
+    assert "Gates: success. Matriz: success." in summary.read_text(encoding="utf-8")
