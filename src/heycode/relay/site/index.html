@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07090d">
+  <title>HeyCode: fale, seus agentes fazem</title>
+  <meta name="description" content="O HeyCode liga a Alexa aos agentes de código do seu computador: pergunte o status, aprove comandos e dispare tarefas por voz.">
+  <link rel="stylesheet" href="/site/site.css">
+  <script type="module" src="/site/site.js"></script>
+</head>
+<body>
+  <svg class="defs" aria-hidden="true" focusable="false">
+    <symbol id="mark" viewBox="0 0 32 32" fill="none">
+      <linearGradient id="mark-g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2dd4bf"/><stop offset="1" stop-color="#7c5cff"/></linearGradient>
+      <circle cx="16" cy="16" r="12.5" stroke="url(#mark-g)" stroke-width="4"/>
+      <path d="M12.5 11.5 17.5 16l-5 4.5" stroke="#2dd4bf" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5 10 17l9-10"/></symbol>
+    <symbol id="i-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11v9H4v-9zM7 11l4-7a2 2 0 0 1 2.6 2.4L13 10h5a2 2 0 0 1 2 2.4l-1.2 6a2 2 0 0 1-2 1.6H7"/></symbol>
+    <symbol id="i-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 13V4h3v9zM17 13l-4 7a2 2 0 0 1-2.6-2.4L11 14H6a2 2 0 0 1-2-2.4l1.2-6a2 2 0 0 1 2-1.6H17"/></symbol>
+  </svg>
+  <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+  <header class="top">
+    <a class="logo" href="/" aria-label="HeyCode, início"><svg aria-hidden="true"><use href="#mark"/></svg><span>HeyCode</span></a>
+    <nav aria-label="Principal">
+      <a href="#como">Como funciona</a><a href="#recursos">Recursos</a><a href="#comunidade">Comunidade</a><a href="/apoie">Apoie</a>
+    </nav>
+    <div class="top-cta"><a class="btn ghost" href="/app">Entrar</a><a class="btn solid" href="/app">Criar conta</a></div>
+  </header>
+
+  <main id="conteudo">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="pill"><span class="live"></span>Em beta, feito no Brasil</p>
+        <h1>Fale.<br><span class="grad">Seus agentes fazem.</span></h1>
+        <p class="lead">O HeyCode liga a Alexa aos agentes de código do seu computador. Pergunte o status, aprove um comando e dispare uma tarefa sem voltar para a cadeira.</p>
+        <div class="cta-row"><a class="btn solid big" href="/app">Começar sem pagar</a><a class="btn ghost big" href="#como">Ver como funciona</a></div>
+        <p class="fine">Funciona com Claude Code, Codex e Aider. O seu código não sai do seu computador.</p>
+      </div>
+      <p class="sr">Demonstração: você diz “Alexa, pergunte ao HeyCode o status”, a Alexa responde com o estado do agente e o terminal do computador mostra o trabalho em andamento.</p>
+      <div class="stage" aria-hidden="true">
+        <div class="ring"><div class="wave"><i></i><i></i><i></i><i></i><i></i></div></div>
+        <div class="talk">
+          <div class="bubble you"><span class="who">Você</span><p class="mono" id="demo-said">Alexa, pergunte ao HeyCode o status</p></div>
+          <div class="bubble alexa"><span class="who">Alexa</span><p id="demo-reply">O Claude está rodando os testes do projeto loja. Nada esperando por você.</p></div>
+        </div>
+        <div class="term">
+          <div class="term-bar"><i></i><i></i><i></i><span>notebook · projeto loja</span></div>
+          <pre class="mono" id="demo-term">$ claude "rode os testes"
+● rodando pytest -q
+412 passed in 38s</pre>
+        </div>
+      </div>
+    </section>
+
+    <section class="strip" aria-label="Funciona com">
+      <span>Funciona com</span><b>Claude Code</b><b>Codex</b><b>Aider</b><b>MCP</b><b>Amazon Alexa</b>
+    </section>
+
+    <section class="block" id="como">
+      <p class="eyebrow">Como funciona</p>
+      <h2>Três passos entre você e a sua voz no terminal.</h2>
+      <ol class="steps">
+        <li class="card"><span class="n">1</span><h3>Instale e pareie</h3><p>Crie a conta, gere um código no painel e rode um comando no computador. Ele ganha uma chave própria.</p><pre class="mono">heycode pair K7M2Q9XA</pre></li>
+        <li class="card"><span class="n">2</span><h3>Vincule a Alexa</h3><p>Entre com a sua conta HeyCode pelo aplicativo da Alexa e autorize, no painel, cada Echo que pode falar com o seu computador.</p><pre class="mono">Echo da sala · autorizado</pre></li>
+        <li class="card"><span class="n">3</span><h3>Fale</h3><p>Pergunte, aprove, peça. O HeyCode leva o pedido ao agente certo e volta com a resposta resumida.</p><pre class="mono">“Alexa, abra o HeyCode”</pre></li>
+      </ol>
+      <p class="note">A skill da Alexa está em beta fechado e a instalação ainda é feita pelo repositório. Crie a conta para acompanhar.</p>
+    </section>
+
+    <section class="block" id="recursos">
+      <p class="eyebrow">Recursos</p>
+      <h2>O que já funciona hoje.</h2>
+      <div class="bento">
+        <article class="card wide"><h3>Aprove de longe</h3><p>O agente quer rodar um comando? A Alexa avisa o que é e você aprova ou nega com o seu PIN, da cozinha ou do sofá.</p><pre class="mono">⏸ aguardando: git push origin main
+✓ aprovado por voz</pre></article>
+        <article class="card"><h3>Rastro de tudo</h3><p>Veja quando, de qual Echo e com qual resultado cada pedido aconteceu. O serviço guarda só isso, nunca o conteúdo.</p></article>
+        <article class="card"><h3>Atalhos de voz</h3><p>“Executar rodar testes” vira um pedido pronto para o agente que você escolher. Sempre com confirmação.</p></article>
+        <article class="card"><h3>Comandos do computador</h3><p>Scripts e webhooks definidos só na sua máquina, cada um com nível de risco: direto, com confirmação ou com PIN.</p></article>
+        <article class="card"><h3>Vários agentes, uma voz</h3><p>Claude Code, Codex e Aider entram por MCP e adaptadores. A conversa é a mesma para todos.</p></article>
+        <article class="card full"><h3>Se o HeyCode cair, o seu agente segue</h3><p>A ponte falha aberta: sem conexão, o agente continua no fluxo normal do terminal. O HeyCode nunca trava o seu trabalho.</p></article>
+      </div>
+    </section>
+
+    <section class="block split" id="seguranca">
+      <div>
+        <p class="eyebrow">Segurança</p>
+        <h2>Feito para dar ordens a uma máquina. Por isso começa pela segurança.</h2>
+        <p class="lead">Quem define o que roda é o seu computador. O serviço no meio só entrega recados assinados.</p>
+      </div>
+      <ul class="checks">
+        <li><svg aria-hidden="true"><use href="#i-check"/></svg><span><b>Chave por computador.</b> Cada instalação assina os próprios pedidos e pode ser revogada no painel.</span></li>
+        <li><svg aria-hidden="true"><use href="#i-check"/></svg><span><b>Pareamento conferido dos dois lados.</b> O mesmo código de verificação aparece no terminal e no painel.</span></li>
+        <li><svg aria-hidden="true"><use href="#i-check"/></svg><span><b>Echo só com autorização.</b> Um aparelho novo não aciona nada até você aprovar.</span></li>
+        <li><svg aria-hidden="true"><use href="#i-check"/></svg><span><b>Segredos mascarados.</b> Nada é lido em voz alta sem resumo e sem máscara.</span></li>
+        <li><svg aria-hidden="true"><use href="#i-check"/></svg><span><b>Limites e bloqueio de abuso.</b> Taxa por IP, por conta e banimento automático de quem insiste.</span></li>
+      </ul>
+    </section>
+
+    <section class="block" id="comunidade">
+      <p class="eyebrow">Comunidade <span class="tag">em construção</span></p>
+      <h2>Pacotes feitos por quem usa.</h2>
+      <p class="lead">Atalhos, comandos e perfis de agente publicados com o link do repositório e avaliados pela comunidade. Instalou, as frases já funcionam na Alexa.</p>
+      <div class="packs">
+        <article class="card pack"><h3>Rotina de PR</h3><p>Revisar, testar e resumir um pull request por voz.</p><p class="mono repo">seu-usuario/rotina-de-pr</p><p class="votes"><span class="up"><svg aria-hidden="true"><use href="#i-up"/></svg>128</span><span class="down"><svg aria-hidden="true"><use href="#i-down"/></svg>6</span><span class="rate">95% aprovam</span></p></article>
+        <article class="card pack"><h3>Deploy com PIN</h3><p>Publicar em staging só depois de confirmar com o PIN.</p><p class="mono repo">seu-usuario/deploy-com-pin</p><p class="votes"><span class="up"><svg aria-hidden="true"><use href="#i-up"/></svg>74</span><span class="down"><svg aria-hidden="true"><use href="#i-down"/></svg>9</span><span class="rate">89% aprovam</span></p></article>
+        <article class="card pack"><h3>Bom dia, agentes</h3><p>Resumo do que rodou de madrugada e do que espera por você.</p><p class="mono repo">seu-usuario/bom-dia-agentes</p><p class="votes"><span class="up"><svg aria-hidden="true"><use href="#i-up"/></svg>211</span><span class="down"><svg aria-hidden="true"><use href="#i-down"/></svg>4</span><span class="rate">98% aprovam</span></p></article>
+      </div>
+      <p class="note">Exemplos ilustrativos de como o catálogo vai aparecer. Os pacotes, os números e os endereços acima não existem.</p>
+    </section>
+
+    <section class="block" id="apoio">
+      <p class="eyebrow">Apoie</p>
+      <h2>Sem empresa por trás. Com quem usa ao lado.</h2>
+      <p class="lead">O HeyCode é mantido por uma pessoa e não vende assinatura. Quem quiser contribui para manter o serviço no ar e ganha limites maiores como agradecimento.</p>
+      <div class="tiers">
+        <article class="card tier"><h3>Livre</h3><p class="price">R$ 0</p><p>2 computadores, 30 comandos de voz e 200 pedidos por dia.</p></article>
+        <article class="card tier glow"><h3>Apoiador</h3><p class="price">R$ 15 <small>contribuição sugerida por mês</small></p><p>4 computadores, 100 comandos de voz e 1000 pedidos por dia.</p></article>
+        <article class="card tier"><h3>Patrono</h3><p class="price">R$ 45 <small>contribuição sugerida por mês</small></p><p>8 computadores, 300 comandos de voz e 3000 pedidos por dia.</p></article>
+      </div>
+      <div class="cta-row center"><a class="btn solid big" href="/apoie">Ver como apoiar</a></div>
+    </section>
+
+    <section class="final">
+      <svg aria-hidden="true"><use href="#mark"/></svg>
+      <h2>Levante da cadeira. Continue no comando.</h2>
+      <div class="cta-row center"><a class="btn solid big" href="/app">Criar conta</a></div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <a class="logo" href="/" aria-label="HeyCode, início"><svg aria-hidden="true"><use href="#mark"/></svg><span>HeyCode</span></a>
+    <p>Projeto independente, sem vínculo com a Amazon, a Anthropic ou a OpenAI. Alexa e Echo são marcas da Amazon.</p>
+    <nav aria-label="Rodapé"><a href="/apoie">Apoie</a><a href="/app">Painel</a></nav>
+  </footer>
+</body>
+</html>
