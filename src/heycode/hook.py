@@ -33,8 +33,10 @@ def agent_of(argv):
 
 def bridge_is_up(url, timeout=0.5):
     """Sonda rapida: no Windows, conectar numa porta fechada leva ~2 s; a ponte fora do ar nao pode atrasar o agente."""
-    parts = urllib.parse.urlsplit(url)
     try:
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.hostname:
+            return False
         port = parts.port or (443 if parts.scheme == "https" else 80)
         with socket.create_connection((parts.hostname, port), timeout=timeout):
             return True

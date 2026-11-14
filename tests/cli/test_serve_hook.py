@@ -163,6 +163,7 @@ def test_hook_com_ponte_fora_do_ar_sai_com_0_em_menos_de_2s(monkeypatch):
 def test_bridge_is_up_com_url_invalida_ou_fechada():
     assert hook.bridge_is_up("http://127.0.0.1:1") is False
     assert hook.bridge_is_up("nao-e-url") is False
+    assert hook.bridge_is_up("http://[invalido") is False
 
 
 def test_bridge_is_up_com_servidor_no_ar(fake):
