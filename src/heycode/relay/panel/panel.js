@@ -175,24 +175,26 @@ async function viewHome() {
 async function viewComputers() {
   const list = await loadInstallations();
   const rename = async (i) => {
-    const name = window.prompt("Novo nome do computador:", i.name);
-    if (!name || !name.trim()) return;
+    const name = await ask({ title: "Renomear computador", field: { label: "Novo nome", value: i.name, maxlength: "64" }, confirm: "Salvar nome" });
+    if (!name) return;
     try { await api("PATCH", "/v1/installations/" + i.id, { name }); toast("Renomeado."); render(); } catch (e) { toast(say(e)); }
   };
   const makeDefault = async (i) => { await api("PUT", "/v1/default-installation", { installation_id: i.id }); toast("Computador padrão definido."); render(); };
   const remove = async (i) => {
-    if (!window.confirm("Remover \"" + i.name + "\"? Ele deixa de receber pedidos e precisará ser pareado de novo.")) return;
+    if (!(await ask({ title: "Remover “" + i.name + "”?", text: "Ele deixa de receber pedidos e precisará ser pareado de novo.", confirm: "Remover computador", danger: true }))) return;
     await api("DELETE", "/v1/installations/" + i.id); toast("Computador removido."); render();
   };
-  return page("Computadores", "Os computadores pareados à sua conta e quais estão conectados agora.",
-    list.length ? list.map((i) => h("div", { class: "card row" },
-      h("div", { class: "grow" },
-        h("div", { class: "name" }, h("span", { class: "dot" + (i.online ? " on" : "") }), i.name, " ",
-          i.is_default ? h("span", { class: "badge ok", text: "padrão" }) : null),
-        h("div", { class: "meta", text: (i.online ? "Conectado" : "Offline") + " · último contato: " + (i.last_seen ? when(i.last_seen) : "nunca") })),
-      h("button", { onclick: () => rename(i), text: "Renomear" }),
-      i.is_default ? null : h("button", { onclick: () => makeDefault(i), text: "Tornar padrão" }),
-      h("button", { class: "danger", onclick: () => remove(i), text: "Remover" })))
+  return page({ title: "Computadores", eyebrow: "Operação", actions: h("button", { class: "primary", onclick: () => go("#/parear"), text: "Parear computador" }) },
+    "Os computadores pareados à sua conta e quais estão conectados agora.",
+    list.length ? h("div", { class: "cards" }, list.map((i) => h("article", { class: "card" },
+      h("div", { class: "row" },
+        h("div", { class: "grow name" }, h("span", { class: "dot" + (i.online ? " on" : "") }), i.name),
+        i.is_default ? h("span", { class: "badge ok", text: "padrão" }) : null),
+      h("div", { class: "meta num", text: (i.online ? "Conectado" : "Offline") + " · último contato: " + (i.last_seen ? when(i.last_seen) : "nunca") }),
+      h("div", { class: "card-foot" },
+        h("button", { onclick: () => rename(i), text: "Renomear" }),
+        i.is_default ? null : h("button", { onclick: () => makeDefault(i), text: "Tornar padrão" }),
+        h("button", { class: "danger", onclick: () => remove(i), text: "Remover" })))))
       : empty("Nenhum computador pareado ainda. Abra “Parear” para conectar o primeiro."));
 }
 
@@ -205,7 +207,7 @@ async function viewDevices() {
       h("div", { class: "meta", text: "Computador: " + nameOf(d.installation_id) })), buttons);
   const pending = devices.filter((d) => d.status === "pending");
   const approved = devices.filter((d) => d.status === "approved");
-  return page("Dispositivos Alexa", "Um Echo só aciona o seu computador depois que você o autorizar aqui.",
+  return page({ title: "Dispositivos Alexa", eyebrow: "Operação" }, "Um Echo só aciona o seu computador depois que você o autorizar aqui.",
     h("h2", { text: "Aguardando sua autorização" }),
     pending.length ? pending.map((d) => card(d, [
       h("button", { class: "primary", onclick: () => act(() => api("POST", "/v1/devices/approve", body(d)), "Dispositivo autorizado."), text: "Autorizar" }),
@@ -261,14 +263,15 @@ async function viewAudit() {
             h("td", { text: r.status }), h("td", { text: r.summary || "" })))))) : null);
     } catch (e) { detail.replaceChildren(empty(e.detail === "offline" ? "O computador está offline: o detalhe só aparece com ele conectado." : say(e))); }
   };
-  const resultSel = h("select", { "aria-label": "Filtrar por resultado", onchange: (e) => { filters.result = e.target.value; load(false); } },
+  const filter = (id, label, select) => h("div", {}, h("label", { for: id, text: label }), Object.assign(select, { id }));
+  const resultSel = h("select", { onchange: (e) => { filters.result = e.target.value; load(false); } },
     h("option", { value: "", text: "Todos os resultados" }), Object.entries(RESULT).map(([k, v]) => h("option", { value: k, text: v[0] })));
-  const compSel = h("select", { "aria-label": "Filtrar por computador", onchange: (e) => { filters.installation_id = e.target.value; load(false); } },
+  const compSel = h("select", { onchange: (e) => { filters.installation_id = e.target.value; load(false); } },
     h("option", { value: "", text: "Todos os computadores" }), state.installations.map((i) => h("option", { value: i.id, text: i.name })));
   const detailBtn = h("button", { onclick: () => { const id = filters.installation_id || (state.installations[0] || {}).id; if (id) showDetail(id); else toast("Nenhum computador pareado."); }, text: "Ver o que o computador registrou" });
   await load(false);
-  return page("Rastro", "O que a voz pediu, aprovou e fez. O relay guarda só o quando, o quem e o resultado, nunca o conteúdo.",
-    h("div", { class: "row card" }, h("div", { class: "grow" }, resultSel), h("div", { class: "grow" }, compSel), detailBtn), out, detail);
+  return page({ title: "Rastro", eyebrow: "Operação" }, "O que a voz pediu, aprovou e fez. O relay guarda só o quando, o quem e o resultado, nunca o conteúdo.",
+    h("div", { class: "card toolbar" }, filter("f-result", "Resultado", resultSel), filter("f-computer", "Computador", compSel), detailBtn), out, detail);
 }
 
 async function viewCommands() {
@@ -286,21 +289,30 @@ async function viewCommands() {
     form.querySelector("#c-instruction").value = v.instruction; form.querySelector("#c-description").value = v.description || "";
     form.querySelector("#c-enabled").checked = v.enabled;
     form.querySelector("h2").textContent = c ? "Editar “" + c.name + "”" : "Novo comando";
+    form.querySelectorAll("[maxlength]").forEach((el) => el.tick && el.tick());
     err.textContent = "";
   };
+  // campo da grade: rotulo, controle e rodape com ajuda e contador de caracteres
+  const field = (span, id, label, control, hint) => {
+    const max = Number(control.getAttribute("maxlength"));
+    const count = max ? h("span", { class: "hint num" }) : null;
+    const tick = () => { if (count) count.textContent = control.value.length + "/" + max; };
+    control.addEventListener("input", tick);
+    control.tick = tick;
+    return h("div", { class: "field " + span }, h("label", { for: id, text: label }), control,
+      h("div", { class: "field-foot" }, h("span", { class: "hint", text: hint || "" }), count));
+  };
   form.append(h("h2", { text: "Novo comando" }),
-    h("div", { class: "grid2" },
-      h("div", {}, h("label", { for: "c-name" }, "Nome falado ", h("span", { class: "hint", text: "(2 a 40 letras)" })), inp("c-name", { maxlength: "40" })),
-      h("div", {}, h("label", { for: "c-aliases" }, "Apelidos ", h("span", { class: "hint", text: "(separados por vírgula, até 5)" })), inp("c-aliases"))),
-    h("div", { class: "grid2" },
-      h("div", {}, h("label", { for: "c-agent", text: "Agente" }), h("select", { id: "c-agent" }, ["claude", "codex", "aider"].map((a) => h("option", { value: a, text: a })))),
-      h("div", {}, h("label", { for: "c-project" }, "Projeto ", h("span", { class: "hint", text: "(opcional)" })), inp("c-project", { maxlength: "80" }))),
-    h("label", { for: "c-instruction" }, "O que pedir ao agente"), h("textarea", { id: "c-instruction", maxlength: "500" }),
-    h("label", { for: "c-description" }, "Descrição ", h("span", { class: "hint", text: "(opcional)" })), inp("c-description", { maxlength: "200" }),
-    h("label", {}, inp("c-enabled", { type: "checkbox", checked: true, style: undefined }), " Ligado"),
-    err, h("div", { class: "row" }, h("button", { class: "primary", type: "submit", text: "Salvar" }), h("button", { type: "button", onclick: () => fill(null), text: "Limpar" })),
-    h("p", { class: "meta", text: "Ao dizer o comando, a Alexa monta o pedido e pergunta “Confirma?” — nada roda sem a sua confirmação por voz." }));
-  form.querySelector("#c-enabled").style.width = "auto";
+    h("div", { class: "form-grid" },
+      field("s6", "c-name", "Nome falado", inp("c-name", { maxlength: "40" }), "O que você diz depois de “executar”."),
+      field("s6", "c-aliases", "Apelidos", inp("c-aliases"), "Opcional. Separados por vírgula, até 5."),
+      field("s4", "c-agent", "Agente", h("select", { id: "c-agent" }, ["claude", "codex", "aider"].map((a) => h("option", { value: a, text: a })))),
+      field("s8", "c-project", "Projeto", inp("c-project", { maxlength: "80" }), "Opcional. Pasta ou nome do projeto no computador."),
+      field("", "c-instruction", "O que pedir ao agente", h("textarea", { id: "c-instruction", maxlength: "500" }), "Escreva como pediria a um colega."),
+      field("", "c-description", "Descrição", inp("c-description", { maxlength: "200" }), "Opcional. Só aparece aqui no painel."),
+      h("div", { class: "field" }, h("label", { class: "switch-row", for: "c-enabled" }, inp("c-enabled", { type: "checkbox", class: "switch", checked: true }), "Ligado"), err),
+      h("div", { class: "form-actions" }, h("button", { class: "primary", type: "submit", text: "Salvar" }), h("button", { type: "button", class: "ghost", onclick: () => fill(null), text: "Limpar" }),
+        h("span", { class: "hint", text: "A Alexa sempre pergunta “Confirma?” antes de rodar." }))));
   form.addEventListener("submit", async (ev) => {
     ev.preventDefault();
     const val = (id) => form.querySelector(id).value.trim();
@@ -315,7 +327,7 @@ async function viewCommands() {
     } catch (e) { err.textContent = say(e); }
   });
   const toggle = async (c) => { await api("PUT", "/v1/commands/" + c.id, { ...c, enabled: !c.enabled }); render(); };
-  const del = async (c) => { if (window.confirm("Apagar “" + c.name + "”?")) { await api("DELETE", "/v1/commands/" + c.id); toast("Comando apagado."); render(); } };
+  const del = async (c) => { if (await ask({ title: "Apagar “" + c.name + "”?", text: "A Alexa deixa de reconhecer esse comando.", confirm: "Apagar comando", danger: true })) { await api("DELETE", "/v1/commands/" + c.id); toast("Comando apagado."); render(); } };
   const cards = list.length ? list.map((c) => h("div", { class: "card row" },
     h("div", { class: "grow" }, h("div", { class: "name" }, c.name, " ", h("span", { class: "badge" + (c.enabled ? " ok" : ""), text: c.enabled ? "ligado" : "desligado" })),
       h("div", { class: "meta", text: "Diga: “Alexa, peça ao HeyCode, executar " + c.name + "” → " + c.agent + (c.project ? " em " + c.project : "") }),
@@ -324,7 +336,8 @@ async function viewCommands() {
     h("button", { onclick: () => toggle(c), text: c.enabled ? "Desligar" : "Ligar" }),
     h("button", { class: "danger", onclick: () => del(c), text: "Apagar" })))
     : empty("Nenhum comando ainda. Crie o primeiro abaixo, por exemplo “rodar testes”.");
-  return page("Comandos", "Atalhos que a Alexa dispara por voz. Cada um vira um pedido a um agente, sempre com confirmação.", cards, form,
+  fill(null);
+  return page({ title: "Comandos", eyebrow: "Automação" }, "Atalhos que a Alexa dispara por voz. Cada um vira um pedido a um agente, sempre com confirmação.", cards, form,
     h("h2", { text: "Comandos do computador" }), computerCommandsSection());
 }
 
@@ -371,7 +384,7 @@ async function viewPair() {
       const cmd = "heycode pair " + code + " --relay " + location.origin;
       out.replaceChildren(h("div", { class: "card" }, h("div", { class: "meta", text: "Código (vale 5 minutos, uso único)" }), h("div", { class: "code", text: code }),
         h("p", { class: "meta", text: "No computador que você quer conectar, rode:" }), h("pre", { class: "cmd", text: cmd }),
-        h("button", { onclick: async () => { try { await navigator.clipboard.writeText(cmd); toast("Comando copiado."); } catch { toast("Copie o comando manualmente."); } }, text: "Copiar comando" })));
+        h("div", { class: "card-foot" }, h("button", { onclick: async () => { try { await navigator.clipboard.writeText(cmd); toast("Comando copiado."); } catch { toast("Copie o comando manualmente."); } }, text: "Copiar comando" }))));
     } catch (e) { toast(say(e)); }
   };
   const refresh = async () => {
@@ -388,8 +401,8 @@ async function viewPair() {
   };
   state.pairTimer = setInterval(refresh, 3000);
   await refresh();
-  return page("Parear um computador", "Gere um código, rode o comando no computador e confirme aqui que o código de verificação é o mesmo.",
-    h("button", { class: "primary", onclick: gen, text: "Gerar código de pareamento" }), out, h("h2", { text: "Esperando confirmação" }), pend);
+  return page({ title: "Parear um computador", eyebrow: "Automação", actions: h("button", { class: "primary", onclick: gen, text: "Gerar código de pareamento" }) },
+    "Gere um código, rode o comando no computador e confirme aqui que o código de verificação é o mesmo.", out, h("h2", { text: "Esperando confirmação" }), pend);
 }
 
 async function viewAccount() {
@@ -397,27 +410,35 @@ async function viewAccount() {
   const accent = localStorage.getItem("hc_accent") || ACCENTS.Verde;
   const pw = h("input", { type: "password", id: "del-pw", autocomplete: "current-password" });
   const err = h("p", { class: "error", role: "alert" });
-  return page("Conta", state.session.email,
-    h("h2", { text: "Aparência" }),
+  const swatch = (n, c) => {
+    const b = h("button", { class: "swatch", title: n, "aria-label": n, "aria-pressed": String(c === accent), onclick: () => {
+      localStorage.setItem("hc_accent", c); applyLook();
+      b.parentElement.querySelectorAll("button").forEach((o) => o.setAttribute("aria-pressed", String(o === b)));
+    } });
+    b.style.background = c;  // pela API de estilo: a CSP so barra o atributo style escrito no HTML
+    return b;
+  };
+  const setting = (title, hint, ...controls) => h("div", { class: "setting" },
+    h("div", {}, h("h2", { text: title }), h("p", { class: "meta", text: hint })), h("div", {}, controls));
+  return page({ title: "Conta", eyebrow: "Você" }, state.session.email,
     h("div", { class: "card" },
-      h("label", { for: "theme", text: "Tema" }),
-      h("select", { id: "theme", onchange: (e) => { localStorage.setItem("hc_theme", e.target.value); applyLook(); } },
-        [["auto", "Automático"], ["light", "Claro"], ["dark", "Escuro"]].map(([v, t]) => h("option", { value: v, text: t, selected: v === theme }))),
-      h("label", { text: "Cor de destaque" }),
-      h("div", { class: "swatches" }, Object.entries(ACCENTS).map(([n, c]) => h("button", { class: "swatch", title: n, "aria-label": n, "aria-pressed": String(c === accent),
-        onclick: (e) => { localStorage.setItem("hc_accent", c); applyLook(); e.currentTarget.parentElement.querySelectorAll("button").forEach((b) => b.setAttribute("aria-pressed", String(b === e.currentTarget))); } }))),
-      ),
-    h("h2", { text: "Sessão" }),
-    h("div", { class: "card" }, h("button", { onclick: async () => { await api("POST", "/v1/panel/logout"); state.session = null; render(); }, text: "Sair" })),
-    h("h2", { text: "Excluir a conta" }),
+      setting("Tema", "Claro, escuro ou o que o seu sistema usar. Fica só neste navegador.",
+        h("label", { for: "theme", text: "Tema do painel" }),
+        h("select", { id: "theme", onchange: (e) => { localStorage.setItem("hc_theme", e.target.value); applyLook(); } },
+        [["auto", "Automático"], ["light", "Claro"], ["dark", "Escuro"]].map(([v, t]) => h("option", { value: v, text: t, selected: v === theme })))),
+      setting("Cor de destaque", "Usada em botões, seleção e indicadores.",
+        h("div", { class: "swatches" }, Object.entries(ACCENTS).map(([n, c]) => swatch(n, c)))),
+      setting("Sessão", "Encerra o acesso ao painel neste navegador.",
+        h("button", { onclick: async () => { await api("POST", "/v1/panel/logout"); state.session = null; render(); }, text: "Sair" }))),
+    h("h2", { text: "Zona de perigo" }),
     h("div", { class: "card" },
-      h("p", { class: "meta", text: "Apaga a conta, computadores, dispositivos, comandos e o rastro, e encerra a vinculação com a Alexa. Não dá para desfazer." }),
-      h("label", { for: "del-pw", text: "Confirme com a sua senha" }), pw, err,
-      h("p", {}, h("button", { class: "danger", onclick: async () => {
+      setting("Excluir a conta", "Apaga a conta, computadores, dispositivos, comandos e o rastro, e encerra a vinculação com a Alexa. Não dá para desfazer.",
+        h("label", { for: "del-pw", text: "Confirme com a sua senha" }), pw, err,
+        h("p", {}, h("button", { class: "danger", onclick: async () => {
         if (!pw.value) { err.textContent = "Digite a senha."; return; }
-        if (!window.confirm("Excluir a conta definitivamente?")) return;
+        if (!(await ask({ title: "Excluir a conta definitivamente?", text: "Tudo é apagado agora e não dá para desfazer.", confirm: "Excluir definitivamente", danger: true }))) return;
         try { await api("DELETE", "/v1/account", { password: pw.value }); state.session = null; toast("Conta excluída."); render(); } catch (e) { err.textContent = e.status === 403 ? "Senha incorreta." : say(e); }
-      }, text: "Excluir minha conta" }))));
+      }, text: "Excluir minha conta" })))));
 }
 
 // ---------- entrada ----------
@@ -477,6 +498,8 @@ async function render() {
   const main = h("main", { id: "main" },
     h("div", { class: "skeleton", role: "status", "aria-label": "Carregando" }, h("div"), h("div"), h("div"), h("div")));
   ROOT.replaceChildren(h("div", { class: "shell" }, nav, main));
+  const current = nav.querySelector("[aria-current]");  // no celular o menu rola de lado: o item atual fica a vista
+  if (current && nav.scrollWidth > nav.clientWidth) nav.scrollLeft = current.offsetLeft - nav.clientWidth / 2 + current.offsetWidth / 2;
   try {
     main.replaceChildren(...(await ROUTES[key][1]()));
   } catch (e) {

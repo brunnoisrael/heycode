@@ -126,9 +126,17 @@ def test_05_computador_aparece_offline_e_pode_ser_renomeado(page):
     nav(page, "Computadores")
     expect(page.locator(".card .name")).to_be_visible()
     assert "Notebook" in page.inner_text(".card .name") and "Offline" in page.inner_text(".card .meta")
-    page.once("dialog", lambda d: d.accept("Notebook da sala"))
     page.get_by_role("button", name="Renomear").click()
+    modal = page.locator("dialog.modal[open]")
+    expect(modal.locator("#ask-input")).to_have_value("Notebook")
+    modal.get_by_role("button", name="Cancelar").click()  # cancelar nao muda nada
+    expect(page.locator("dialog.modal")).to_have_count(0)
+    assert "Notebook da sala" not in page.inner_text(".card .name")
+    page.get_by_role("button", name="Renomear").click()
+    page.fill("#ask-input", "Notebook da sala")
+    page.get_by_role("button", name="Salvar nome").click()
     expect(page.locator(".card .name")).to_contain_text("Notebook da sala")
+    expect(page.locator("dialog.modal")).to_have_count(0)
 
 
 def test_05b_visao_geral_resume_computadores_passos_e_atividade(page):
@@ -166,6 +174,8 @@ def test_08_comando_novo_e_html_malicioso_aparece_como_texto(page):
     nav(page, "Comandos")
     page.fill("#c-name", XSS)
     page.fill("#c-instruction", "rode os testes e resuma as falhas")
+    expect(page.locator(".field", has=page.locator("#c-instruction")).locator(".num")).to_have_text("33/500")
+    assert page.locator("#c-enabled.switch").is_checked()
     page.get_by_role("button", name="Salvar").click()
     page.wait_for_selector(".card .name")
     assert "<img src=x" in page.inner_text(".card .name")  # visivel como texto, nao interpretado
@@ -173,8 +183,8 @@ def test_08_comando_novo_e_html_malicioso_aparece_como_texto(page):
     assert page.evaluate("window.__pwned") is None
     page.get_by_role("button", name="Desligar").click()
     expect(page.locator(".badge").first).to_have_text("desligado")
-    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Apagar").click()
+    page.get_by_role("button", name="Apagar comando").click()
     page.wait_for_selector("text=Nenhum comando ainda")
 
 
@@ -297,12 +307,12 @@ def test_11_sair_e_voltar_exige_login_e_excluir_conta_apaga_tudo(page, server):
     page.wait_for_selector("main h1")
     nav(page, "Conta")
     page.fill("#del-pw", "senha-errada-aqui")
-    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Excluir minha conta").click()
+    page.get_by_role("button", name="Excluir definitivamente").click()
     expect(page.locator(".error")).to_contain_text("incorreta")
     page.fill("#del-pw", PASSWORD)
-    page.once("dialog", lambda d: d.accept())
     page.get_by_role("button", name="Excluir minha conta").click()
+    page.get_by_role("button", name="Excluir definitivamente").click()
     page.wait_for_selector("form #email")
     assert repo.count_audit() == 0 and repo.count_shortcuts() == 0
     assert httpx.post(base + "/v1/login", json={"email": EMAIL, "password": PASSWORD}).status_code == 401
@@ -315,6 +325,15 @@ def test_12_layout_estreito_nao_quebra(browser, server):
     pg.goto(base + "/app")
     pg.wait_for_selector(".auth")
     assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1")
+    pg.get_by_role("button", name="Criar conta").first.click()
+    pg.fill("#email", "estreito@exemplo.com")
+    pg.fill("#pass", PASSWORD)
+    pg.locator("form button[type=submit]").click()
+    for rota in ("inicio", "computadores", "rastro", "comandos", "parear", "conta"):
+        pg.goto(base + "/app#/" + rota)
+        pg.wait_for_selector("main h1")
+        assert pg.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"), rota
+    assert pg.locator("nav a[aria-current=page]").bounding_box()["x"] >= 0  # o item atual do menu fica visivel
     ctx.close()
 
 

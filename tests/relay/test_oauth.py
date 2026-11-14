@@ -220,3 +220,16 @@ def test_formulario_de_vinculacao_tem_limite_por_ip_e_por_email(client, clock):
         assert authorize(client, password="senha-errada-1").status_code == 401
     r = authorize(client)
     assert r.status_code == 429 and "Muitas tentativas" in r.text and int(r.headers["retry-after"]) > 0
+
+
+def test_pagina_de_vinculacao_usa_o_visual_do_painel_sem_script_e_com_csp_propria(client):
+    r = client.get("/oauth/authorize", params={"client_id": "alexa-client", "redirect_uri": REDIRECT, "state": "s"})
+    csp = r.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "style-src 'self'" in csp and "frame-ancestors 'none'" in csp
+    assert "script-src" not in csp and "form-action" not in csp and "unsafe" not in csp
+    assert "/app/static/panel.css" in r.text and "<script" not in r.text and " style=" not in r.text
+    assert 'name="viewport"' in r.text.replace("'", '"') and "no-store" in r.headers["cache-control"]
+    signup(client, "a@exemplo.com")
+    wrong = authorize(client, password="senha-errada-1")
+    assert wrong.status_code == 401 and "role='alert'" in wrong.text and "E-mail ou senha incorretos." in wrong.text
+    assert wrong.headers["content-security-policy"] == csp

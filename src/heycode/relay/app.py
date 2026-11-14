@@ -54,6 +54,8 @@ IP_LIMIT = 240  # pedidos por minuto por IP, somando todas as rotas
 MAX_BODY = 64 * 1024
 MAX_BODY_ALEXA = 256 * 1024
 API_CSP = "default-src 'none'; frame-ancestors 'none'"
+# sem form-action: depois do login o navegador vai para a Amazon, e essa diretiva barraria o redirecionamento
+OAUTH_CSP = "default-src 'none'; style-src 'self'; img-src data:; base-uri 'none'; frame-ancestors 'none'"
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
@@ -437,15 +439,26 @@ def create_app(
             f'<input type="hidden" name="{html.escape(k)}" value="{html.escape(v, quote=True)}">'
             for k, v in params.items()
         )
-        msg = f"<p>{html.escape(error)}</p>" if error else ""
-        return (
-            "<!doctype html><html lang='pt-BR'><meta charset='utf-8'><title>Vincular HeyCode</title>"
-            "<h1>Vincular a Alexa ao HeyCode</h1>" + msg + "<form method='post' action='/oauth/authorize'>"
-            "<label>E-mail <input type='email' name='email' required></label>"
-            "<label>Senha <input type='password' name='password' required></label>"
+        msg = f"<p class='error' role='alert'>{html.escape(error)}</p>" if error else ""
+        return (  # mesmo visual do painel; sem script, e o CSS vem do proprio relay
+            "<!doctype html><html lang='pt-BR' data-theme='auto'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1'><title>Vincular HeyCode</title>"
+            "<link rel='stylesheet' href='/app/static/panel.css'></head><body><div class='auth'>"
+            "<div class='brand'>HeyCode</div><div class='auth-intro'><p class='eyebrow'>Alexa</p>"
+            "<h1>Vincular a Alexa ao HeyCode</h1>"
+            "<p class='sub'>Entre com a sua conta para a Alexa falar com os seus computadores.</p></div>"
+            "<form class='card' method='post' action='/oauth/authorize'>"
+            "<label for='email'>E-mail</label>"
+            "<input id='email' type='email' name='email' autocomplete='email' required>"
+            "<label for='password'>Senha</label>"
+            "<input id='password' type='password' name='password' autocomplete='current-password' required>"
             + hidden
-            + "<button type='submit'>Vincular</button></form></html>"
+            + msg
+            + "<button class='primary' type='submit'>Vincular</button></form></div></body></html>"
         )
+
+    def _oauth_page(body: str, status: int = 200, headers: dict | None = None) -> HTMLResponse:
+        return HTMLResponse(body, status_code=status, headers={"Content-Security-Policy": OAUTH_CSP, **(headers or {})})
 
     _OAUTH_PARAMS = ("client_id", "redirect_uri", "state", "response_type", "code_challenge", "code_challenge_method")
 
@@ -459,8 +472,8 @@ def create_app(
         server = _need_oauth()
         params = {k: request.query_params.get(k, "") for k in _OAUTH_PARAMS if request.query_params.get(k)}
         if not server.valid_client_redirect(params.get("client_id", ""), params.get("redirect_uri", "")):
-            return HTMLResponse("Pedido de vinculacao invalido.", status_code=400)
-        return HTMLResponse(_form_html(params))
+            return _oauth_page("Pedido de vinculacao invalido.", 400)
+        return _oauth_page(_form_html(params))
 
     @app.post("/oauth/authorize")
     async def oauth_authorize(request: Request) -> Response:
@@ -469,14 +482,14 @@ def create_app(
         try:
             _throttle_login(request, form.get("email", ""))
         except HTTPException as exc:
-            return HTMLResponse("Muitas tentativas. Tente de novo em instantes.", status_code=429, headers=exc.headers)
+            return _oauth_page("Muitas tentativas. Tente de novo em instantes.", 429, exc.headers)
         params = {k: form[k] for k in _OAUTH_PARAMS if form.get(k)}
         try:
             location = server.authorize(form.get("email", ""), form.get("password", ""), params)
         except OAuthError:
-            return HTMLResponse("Pedido de vinculacao invalido.", status_code=400)  # nunca redireciona
+            return _oauth_page("Pedido de vinculacao invalido.", 400)  # nunca redireciona
         except AccountError:
-            return HTMLResponse(_form_html(params, "E-mail ou senha incorretos."), status_code=401)
+            return _oauth_page(_form_html(params, "E-mail ou senha incorretos."), 401)
         return Response(status_code=302, headers={"Location": location})
 
     @app.post("/oauth/token")
