@@ -1,0 +1,24 @@
+# Gerado a partir de scripts/gates/gates.json (protected_paths + human_review_paths).
+# Um teste garante que os dois nao divergem. Mudar este arquivo exige aprovacao humana (G11).
+
+/scripts/gates/ @brunnoisrael
+/.githooks/ @brunnoisrael
+/.github/ @brunnoisrael
+/AGENTS.md @brunnoisrael
+/CLAUDE.md @brunnoisrael
+/.claude/ @brunnoisrael
+/docs/SDLC.md @brunnoisrael
+/.gitleaks.toml @brunnoisrael
+/ruff.toml @brunnoisrael
+/LICENSE @brunnoisrael
+/src/heycode/policy/ @brunnoisrael
+/src/heycode/store/ @brunnoisrael
+/src/heycode/mcp_server/ @brunnoisrael
+/src/heycode/supervisor/ @brunnoisrael
+/skill/lambda/ @brunnoisrael
+/skill/interaction-model-pt-BR.json @brunnoisrael
+/docs/superpowers/specs/ @brunnoisrael
+/docs/security/ @brunnoisrael
+/relay/ @brunnoisrael
+/protocol/ @brunnoisrael
+/infra/ @brunnoisrael

@@ -1,9 +1,7 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "bridge"))
-
-from store.db import Store
+from heycode.store.db import Store
 
 
 def test_fifo_e_entrega_unica():

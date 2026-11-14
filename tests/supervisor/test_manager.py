@@ -4,8 +4,8 @@ import time
 
 import pytest
 
-from bridge.store.db import Store
-from bridge.supervisor.manager import Supervisor
+from heycode.store.db import Store
+from heycode.supervisor.manager import Supervisor
 
 
 def fake(code):
@@ -154,7 +154,7 @@ def test_motivo_da_falha_e_mascarado_e_cortado_pelo_comeco():
 
 
 def test_parser_quebrado_nao_impede_a_finalizacao(monkeypatch):
-    import bridge.supervisor.manager as manager
+    import heycode.supervisor.manager as manager
     monkeypatch.setattr(manager, "failure_reason", lambda agent, output: None)
     r = wait_done(sup := Supervisor(Store(), _falha("{'result': 'x'}")), sup.start("claude", "x", ".", "manual"))
     assert r["status"] == "falhou" and "result" in r["summary"]

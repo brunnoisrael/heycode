@@ -5,7 +5,9 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-HOOK = os.path.join(os.path.dirname(__file__), "..", "..", "bridge", "hook.py")
+import pytest
+
+HOOK = ["-m", "heycode.hook"]
 
 
 class Fake:
@@ -44,7 +46,7 @@ class Fake:
 
 def run(args, payload, url):
     env = dict(os.environ, BRIDGE_URL=url, BRIDGE_SECRET="s")
-    return subprocess.run([sys.executable, HOOK, *args], input=json.dumps(payload),
+    return subprocess.run([sys.executable, *HOOK, *args], input=json.dumps(payload),
                           capture_output=True, text=True, env=env, timeout=30)
 
 
@@ -123,7 +125,7 @@ def test_stdin_utf8_chega_integro_ao_servidor():
     payload = {"hook_event_name": "Notification", "message": texto, "extra": texto2}
     env = dict(os.environ, BRIDGE_URL=f.url, BRIDGE_SECRET="s")
     try:
-        r = subprocess.run([sys.executable, HOOK], input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        r = subprocess.run([sys.executable, *HOOK], input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                            capture_output=True, env=env, timeout=30)
     finally:
         f.close()
@@ -132,6 +134,7 @@ def test_stdin_utf8_chega_integro_ao_servidor():
     assert f.calls[0][1]["extra"] == texto2
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="usa caminho do Windows (barra invertida)")
 def test_stop_no_windows_usa_o_nome_da_pasta_como_projeto():
     f = Fake(instruction=None)
     try:

@@ -7,7 +7,9 @@ import sys
 import threading
 import time
 
-HOOK = os.path.join(os.path.dirname(__file__), "..", "..", "bridge", "hook.py")
+import pytest
+
+HOOK = ["-m", "heycode.hook"]
 PREFIX = "Instrução do dono, ditada pela Alexa e confirmada por voz: "
 
 
@@ -71,6 +73,7 @@ def test_sessao_parada_enfileira_e_avisa(client):
     assert _next(client) == "x"
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="usa caminho do Windows (barra invertida)")
 def test_destino_e_a_sessao_mais_recente(client):
     _session(client, cwd="/x/antigo")
     client.post("/event", json={"hook_event_name": "PreToolUse", "session_id": "s2", "cwd": "C:\\p\\novo",
@@ -116,7 +119,7 @@ def _free_port():
 
 def _hook(payload, url, secret):
     env = dict(os.environ, BRIDGE_URL=url, BRIDGE_SECRET=secret)
-    return subprocess.run([sys.executable, HOOK], input=json.dumps(payload).encode("utf-8"),
+    return subprocess.run([sys.executable, *HOOK], input=json.dumps(payload).encode("utf-8"),
                           capture_output=True, env=env, timeout=30)
 
 

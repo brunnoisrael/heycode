@@ -12,7 +12,7 @@ from conftest import AGENT_SECRET, CONTROL_SECRET
 def restart(client):
     """Fecha o Store, reabre o mesmo arquivo e recarrega o server."""
     client.server.store.close()
-    server = importlib.reload(sys.modules["server"])
+    server = importlib.reload(sys.modules["heycode.app"])
     c = TestClient(server.app, headers={"x-secret": CONTROL_SECRET})
     c.server = server
     return c

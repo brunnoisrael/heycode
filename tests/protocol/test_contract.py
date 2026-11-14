@@ -1,0 +1,116 @@
+import copy
+
+import pytest
+
+from heycode.protocol import SUPPORTED_VERSIONS, ProtocolError, validate
+
+
+def _env(**over):
+    msg = {
+        "v": 1,
+        "id": "018f0000-0000-7000-8000-000000000000",
+        "ts": 1.0,
+        "installation_id": "inst-1",
+        "type": "status",
+        "payload": {"state": "running"},
+        "sig": "x",
+    }
+    msg.update(over)
+    return msg
+
+
+def test_envelope_valido_passa():
+    validate(_env())
+
+
+def test_versao_maior_recusada_unsupported_version():
+    with pytest.raises(ProtocolError) as e:
+        validate(_env(v=max(SUPPORTED_VERSIONS) + 1))
+    assert e.value.code == "unsupported_version"
+
+
+def test_campo_desconhecido_ignorado():
+    msg = _env()
+    msg["novo_campo"] = 1
+    msg["payload"]["extra"] = True
+    validate(msg)
+
+
+def test_campo_obrigatorio_ausente_falha():
+    msg = _env()
+    del msg["installation_id"]
+    with pytest.raises(ProtocolError) as e:
+        validate(msg)
+    assert e.value.code == "invalid"
+
+
+def test_payload_invalido_para_o_tipo_falha():
+    with pytest.raises(ProtocolError):
+        validate(_env(type="decision-response", payload={"confirmation_id": "c"}))
+
+
+def test_tipo_desconhecido_falha():
+    with pytest.raises(ProtocolError):
+        validate(_env(type="inventado"))
+
+
+def test_id_que_nao_e_uuidv7_falha():
+    with pytest.raises(ProtocolError):
+        validate(_env(id="not-a-uuid"))
+
+
+def test_campo_novo_opcional_na_vizinha_nao_quebra_v1():
+    base = _env(
+        type="decision-request",
+        payload={"confirmation_id": "c", "operation": "bash", "destination": "proj", "summary": "ls"},
+    )
+    novo = copy.deepcopy(base)
+    novo["payload"]["campo_futuro_opcional"] = "x"
+    validate(base)
+    validate(novo)
+
+
+def test_todos_os_tipos_tem_esquema_e_exemplo_valido():
+    exemplos = {
+        "status": {"state": "done"},
+        "decision-request": {"confirmation_id": "c", "operation": "o", "destination": "d", "summary": "s"},
+        "decision-response": {"confirmation_id": "c", "approved": True},
+        "instruction": {"text": "faca", "destination": "d"},
+        "run-result": {"run_id": "1", "state": "done", "summary": "ok"},
+        "pair-request": {"code": "ABCD2345", "public_key": "k"},
+        "pair-confirm": {"pending_id": "p", "side": "machine"},
+        "error": {"code": "x"},
+    }
+    for tipo, payload in exemplos.items():
+        validate(_env(type=tipo, payload=payload))
+
+
+def test_uuid7_gerado_sempre_valida_no_esquema():
+    from heycode.protocol.outbound import uuid7
+
+    for i in range(500):
+        validate(_env(id=uuid7(1000.0 + i)))
+
+
+def test_uuid7_carrega_o_timestamp_em_milissegundos():
+    import uuid
+
+    from heycode.protocol.outbound import uuid7
+
+    u = uuid.UUID(uuid7(1_700_000_000.123))
+    assert u.version == 7 and (u.int >> 80) == 1_700_000_000_123
+
+
+def test_bridge_call_valido_e_metodo_fora_da_lista_recusado():
+    validate(_env(type="bridge-call", payload={"method": "GET", "path": "/status"}))
+    validate(_env(type="bridge-call", payload={"method": "POST", "path": "/decide", "body": {"approve": False}}))
+    for bad in ({"method": "DELETE", "path": "/status"}, {"method": "GET"}, {"method": "GET", "path": "status"}):
+        with pytest.raises(ProtocolError):
+            validate(_env(type="bridge-call", payload=bad))
+
+
+def test_bridge_result_exige_status_inteiro_e_corpo_objeto():
+    validate(_env(type="bridge-result", payload={"status": 200, "body": {"speech": "ok"}}))
+    for bad in ({"status": "200", "body": {}}, {"status": 200}, {"status": 200, "body": "texto"}):
+        with pytest.raises(ProtocolError):
+            validate(_env(type="bridge-result", payload=bad))

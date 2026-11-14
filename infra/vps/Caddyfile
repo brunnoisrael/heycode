@@ -1,0 +1,20 @@
+# Troque os dois dominios pelos reais antes de subir. O Caddy obtem e renova os certificados sozinho
+# (Let's Encrypt) e exige que o DNS dos dois nomes ja aponte para o IP publico deste servidor.
+{
+	# e-mail para avisos de certificado (opcional)
+	# email voce@exemplo.com
+}
+
+staging-api.heycode.dev.br, staging-app.heycode.dev.br {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# O relay confia no X-Forwarded-For que o Caddy envia (ADR 0040).
+	reverse_proxy relay:8080 {
+		header_up X-Forwarded-For {remote_host}
+	}
+}

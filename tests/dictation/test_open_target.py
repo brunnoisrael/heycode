@@ -1,7 +1,7 @@
 """Ditado com destino "aberto": confirma e enfileira para a sessao aberta, sem iniciar run (ADR 0018)."""
 import pytest
 
-from bridge.dictation.service import Dictation
+from heycode.dictation.service import Dictation
 
 SK = "sk-abcdef1234567890XYZ"
 

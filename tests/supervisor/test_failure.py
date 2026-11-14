@@ -1,7 +1,7 @@
 """Motivo legivel de falha (ADR 0017): saidas reais do claude 2.1.207 e do codex-cli 0.155.1."""
 import json
 
-from bridge.supervisor.failure import failure_reason, spoken_reason
+from heycode.supervisor.failure import failure_reason, spoken_reason
 
 CLAUDE_MSG = ("API Error: 400 Claude Code 2.1.207 does not support this model; version 2.1.290 or newer is "
               "required. Run 'claude update', or update the Claude desktop app, then try again.")

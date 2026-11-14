@@ -3,8 +3,8 @@ import time
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.testclient import TestClient
 
-from bridge.projects.activity import make_router
-from bridge.store.db import Store
+from heycode.projects.activity import make_router
+from heycode.store.db import Store
 
 
 def auth(x_secret: str = Header(default='')):

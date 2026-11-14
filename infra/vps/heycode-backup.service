@@ -1,0 +1,12 @@
+[Unit]
+Description=Backup do banco do relay HeyCode
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+# BACKUP_REMOTE (destino do rclone) e BACKUP_KEEP ficam neste arquivo opcional, fora do git
+EnvironmentFile=-/opt/heycode/infra/vps/backup.env
+ExecStart=/opt/heycode/infra/vps/backup.sh

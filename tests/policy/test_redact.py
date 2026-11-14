@@ -1,6 +1,6 @@
 import pytest
 
-from bridge.policy.redact import mask_secrets
+from heycode.policy.redact import mask_secrets
 
 
 @pytest.mark.parametrize("segredo", [

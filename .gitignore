@@ -7,3 +7,11 @@ node_modules/
 .superpowers/
 .env.*
 skill/lambda/env.json
+.coverage
+cov.json
+coverage.json
+dist/
+build/
+*.egg-info/
+
+infra/vps/relay.env

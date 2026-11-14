@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/pair-confirm",
+  "type": "object",
+  "required": [
+    "pending_id",
+    "side"
+  ],
+  "properties": {
+    "pending_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "side": {
+      "enum": [
+        "account",
+        "machine"
+      ]
+    }
+  }
+}

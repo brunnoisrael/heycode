@@ -1,9 +1,11 @@
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-from bridge.projects.service import ProjectCreator, scaffold_project, slugify
+from heycode.projects.service import ProjectCreator, scaffold_project, slugify
 
 REPO = str(Path(__file__).resolve().parents[2])
 SK = "sk-abcdef1234567890XYZ"
@@ -69,10 +71,22 @@ def test_hooks_funcionam_no_projeto_novo(tmp_path):
     assert bad.returncode != 0
     assert "Spec" in bad.stderr + bad.stdout
     spec = p / "docs" / "superpowers" / "specs" / "s.md"
-    spec.write_text("# spec", encoding="utf-8")
+    spec.write_text("# spec\n\nStatus: rascunho\n", encoding="utf-8")
+    git(p, "add", "-A")
+    draft = git(p, "commit", "-m", "feat: algo\n\nSpec: docs/superpowers/specs/s.md")
+    assert draft.returncode != 0
+    assert "aprovada" in draft.stderr + draft.stdout
+    spec.write_text("# spec\n\nStatus: aprovada pelo dono\n", encoding="utf-8")
     git(p, "add", "-A")
     ok = git(p, "commit", "-m", "feat: algo\n\nSpec: docs/superpowers/specs/s.md")
     assert ok.returncode == 0, ok.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="bit de execucao so existe em Linux/macOS")
+def test_hooks_do_scaffold_sao_executaveis(tmp_path):
+    p = Path(scaffold_project(str(tmp_path), "exec-app", REPO))
+    for hook in (p / ".githooks").iterdir():
+        assert os.access(hook, os.X_OK), hook.name
 
 
 def test_scaffold_nao_sobrescreve(tmp_path):
@@ -195,12 +209,12 @@ def test_cancel(env):
 
 # ---- M2: pendencia global unica entre ditado e projeto ----
 def _linked(tmp_path):
-    from bridge.dictation.service import Dictation
+    from heycode.dictation.service import Dictation
     clock, fake = Clock(), Fake()
     runs = []
     d = Dictation(lambda a, t, p: runs.append((a, t, p)) or 9, clock=clock)
     c = ProjectCreator(str(tmp_path), REPO, fake, clock=clock)
-    from bridge.projects.routes import make_router
+    from heycode.projects.routes import make_router
     make_router(c, d, lambda: None)  # a rota liga os dois sem editar server.py
     return c, d, clock, fake, runs
 
@@ -242,7 +256,7 @@ def test_has_pending_ignora_expirada(env):
 
 # ---- B5: git do scaffold com timeout e sem assinatura ----
 def test_git_do_scaffold_usa_timeout_e_sem_gpg(tmp_path, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
     seen = []
     real = subprocess.run
 
@@ -258,7 +272,7 @@ def test_git_do_scaffold_usa_timeout_e_sem_gpg(tmp_path, monkeypatch):
 
 
 def test_scaffold_com_timeout_falha_limpo(tmp_path, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
 
     def boom(cmd, **kw):
         raise subprocess.TimeoutExpired(cmd, kw.get("timeout"))
@@ -270,7 +284,7 @@ def test_scaffold_com_timeout_falha_limpo(tmp_path, monkeypatch):
 
 
 def test_confirm_com_timeout_fala_erro_sem_pasta(env, monkeypatch):
-    import bridge.projects.service as svc
+    import heycode.projects.service as svc
     c, _, fake, root = env
 
     def boom(cmd, **kw):

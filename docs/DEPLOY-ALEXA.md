@@ -14,14 +14,14 @@ Nada aqui e feito automaticamente: exige o seu login na Amazon.
 
 ## 1. Subir a ponte e o tunel (no PC)
 
-Em dois terminais PowerShell, na raiz do repositorio:
+Instale o pacote e crie a configuracao (veja [QUICKSTART.md](QUICKSTART.md)); depois, em dois terminais:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run-bridge.ps1
+heycode serve
 powershell -ExecutionPolicy Bypass -File scripts\start-tunnel.ps1
 ```
 
-- Na primeira execucao, `run-bridge.ps1` cria o `.env` (git-ignorado) com **dois segredos** de 48 hex, `BRIDGE_SECRET` (segredo de **agente**: hooks e MCP) e `BRIDGE_CONTROL_SECRET` (segredo de **controle**: so a Lambda), mais `BRIDGE_PIN` (4 digitos). Guarde os tres valores; nunca os commite. A ponte nao inicia se um segredo tiver menos de 32 caracteres ou se os dois forem iguais.
+- `heycode init` cria o `config.env` (no diretorio do usuario, fora do repositorio) com **dois segredos** de 64 hex (32 bytes), `BRIDGE_SECRET` (segredo de **agente**: hooks e MCP) e `BRIDGE_CONTROL_SECRET` (segredo de **controle**: so a Lambda), mais `BRIDGE_PIN` (6 digitos). Guarde os tres valores; nunca os commite. A ponte nao inicia se um segredo tiver menos de 32 caracteres ou se os dois forem iguais.
 - A ponte escuta em `127.0.0.1:8765` (use `$env:BRIDGE_PORT` para outra porta nos dois scripts).
 - O tunel imprime uma URL `https://<nome>.trycloudflare.com`. Essa e a sua `BRIDGE_URL`. Ela **muda a cada execucao** do tunel (tunel rapido, sem conta); ao reiniciar, atualize a variavel na Lambda.
 - Teste: `curl <url>/health` deve responder `{"ok":true}` e `curl <url>/status` sem header deve dar 401.
@@ -50,7 +50,7 @@ A Alexa-hosted roda em Node 16, sem `fetch` global; o `index.js` usa `https` nat
 | Variavel | Valor |
 |---|---|
 | `BRIDGE_URL` | URL `https://...trycloudflare.com` do tunel (sem barra final) |
-| `BRIDGE_CONTROL_SECRET` | o valor de `BRIDGE_CONTROL_SECRET` do `.env` (segredo de controle). **A Lambda NAO deve receber o `BRIDGE_SECRET` de agente**: se ela o tivesse, a separacao de segredos perderia o sentido |
+| `BRIDGE_CONTROL_SECRET` | o valor de `BRIDGE_CONTROL_SECRET` do `config.env` (segredo de controle). **A Lambda NAO deve receber o `BRIDGE_SECRET` de agente**: se ela o tivesse, a separacao de segredos perderia o sentido |
 | `ALLOWED_USER_ID` | seu userId da Alexa (ver abaixo) |
 | `ALLOWED_DEVICE_ID` | deviceId do seu aparelho (ver abaixo) |
 | `ALLOWED_SKILL_ID` | applicationId da sua skill (ver abaixo); com ele definido, outra skill e recusada sem chamar a ponte |
@@ -74,14 +74,14 @@ Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a pont
 ## 4. Ligar os hooks do Claude Code
 
 1. Abra `~/.claude/settings.json` (Windows: `C:\Users\<voce>\.claude\settings.json`).
-2. Mescle o bloco `hooks` de `bridge/claude-settings.example.json`. Ajuste o caminho do `hook.py` para onde o repositorio esta (o exemplo usa `~/claude-alexa-bridge/bridge/hook.py`).
-3. Defina no ambiente do Claude Code (ou do sistema): `BRIDGE_SECRET` (segredo de **agente**, valor de `BRIDGE_SECRET` no `.env`; o `BRIDGE_CONTROL_SECRET` nunca vai para o ambiente do agente) e, se a ponte nao estiver em `http://127.0.0.1:8765`, `BRIDGE_URL`. O hook roda na mesma maquina da ponte, entao nao precisa do tunel.
+2. Mescle o bloco `hooks` de `docs/claude-settings.example.json` (os comandos sao `heycode hook` e `heycode hook approve`; o `heycode` precisa estar no PATH).
+3. Defina no ambiente do Claude Code (ou do sistema): `BRIDGE_SECRET` (segredo de **agente**, valor de `BRIDGE_SECRET` no `config.env`; o `BRIDGE_CONTROL_SECRET` nunca vai para o ambiente do agente) e, se a ponte nao estiver em `http://127.0.0.1:8765`, `BRIDGE_URL`. O hook roda na mesma maquina da ponte, entao nao precisa do tunel.
 4. Reinicie o Claude Code. Os hooks falham abertos: se a ponte estiver fora do ar, o agente segue normal.
 
 ## 5. Uso rapido por voz
 
 - "Alexa, pergunte a ponte claude o status" / "o que esta pendente" / "qual o resultado".
-- Aprovar: diga "aprovar" com o PIN; negar: "negar". O PIN vem do `.env` (`BRIDGE_PIN`).
+- Aprovar: diga "aprovar" com o PIN; negar: "negar". O PIN vem do `config.env` (`BRIDGE_PIN`).
 - Cancelar: "cancela o agente" / "para o agente" interrompe a execucao mais recente em andamento ("Cancelei o agente claude." ou "Nenhum agente rodando.").
 - Avisar o agente aberto: "avise o agente aberto <instrucao>" (mesma releitura e "confirma" do ditado; entra na fila do Claude Code aberto).
 - Ditado em dois turnos: diga "peca ao claude" (ou "manda o codex", "diz pro aider"); a Alexa pergunta "Qual e a instrucao para o claude?"; diga a instrucao; ela rele e pede "confirma". A Alexa nao aceita o agente e a instrucao livre na mesma frase.
@@ -89,19 +89,18 @@ Depois disso, outro usuario ou dispositivo e recusado sem nenhuma chamada a pont
 - Criar projeto: "crie o projeto <nome> com o claude"; a Alexa pergunta "Para que serve o projeto <nome>?"; diga a descricao e depois "confirma".
 - Modos: "modo manual", "modo automatico" (aprova tudo, sem PIN), "modo decisoes"; aviso de fim de ciclo: "avisar no fim do ciclo".
 
-## 6. Ponte como servico fixo (tarefa agendada)
+## 6. Ponte como servico fixo
 
-Em vez de abrir o `run-bridge.ps1` na mao, instale a tarefa `RoomCodeBridge` (ao logon, janela oculta, reinicia em falha):
+Em vez de abrir o `heycode serve` na mao, instale o servico do usuario (Tarefa Agendada no Windows, LaunchAgent no macOS, `systemd --user` no Linux; sem administrador):
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1 -DryRun            # so mostra
-powershell -ExecutionPolicy Bypass -File scripts\install-service.ps1 -ReplaceExisting   # instala
-powershell -ExecutionPolicy Bypass -File scripts\uninstall-service.ps1                  # remove
+```bash
+heycode install-service            # so mostra o que faria (dry-run)
+heycode install-service --apply    # instala; idempotente
+heycode uninstall-service --apply  # remove
 ```
 
-- E idempotente: recria a tarefa se ela existir.
-- `-ReplaceExisting` encerra quem escuta na porta da ponte **somente** se a linha de comando contiver `server:app`; qualquer outro processo na porta nao e tocado (apenas aviso).
-- Teste de fumaca (porta livre, banco e segredo descartaveis, nao mexe no `.env`): `powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1`.
+- Teste de fumaca (porta livre, banco e segredo descartaveis, nao mexe na sua configuracao): `powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1`.
+- Diagnostico a qualquer momento: `heycode doctor`.
 
 ## 7. Tunel nomeado (URL estavel)
 
@@ -130,12 +129,13 @@ Para retornar ao tunel rapido, reponha na Lambda sua URL ainda ativa e faca depl
 
 ## 8. Rotacao do segredo
 
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1 -DryRun
-powershell -ExecutionPolicy Bypass -File scripts\rotate-secret.ps1
+```bash
+heycode rotate-secret                    # dry-run
+heycode rotate-secret --apply            # segredo de agente
+heycode rotate-secret --control --apply  # segredo de controle
 ```
 
-Gera novo segredo no `.env` (`-Which agent|control|both`, padrao `both`) (com backup `.env.bak-<data>`, que guarda o segredo antigo: apague-o), reinicia a tarefa e lista o que atualizar: Lambda (`BRIDGE_CONTROL_SECRET` + Deploy, se o de controle mudou), hooks/ambiente do Claude Code e do Codex e o registro MCP (`BRIDGE_SECRET`, se o de agente mudou) (`scripts\setup-agents.ps1`).
+Gera novo segredo no `config.env` (com backup `config.env.bak-<data>`, que guarda o segredo antigo: apague-o), reinicia o servico e lista o que atualizar: Lambda (`BRIDGE_CONTROL_SECRET` + Deploy, se o de controle mudou) ou hooks/ambiente do Claude Code e do Codex e o registro MCP (`BRIDGE_SECRET`, se o de agente mudou) (`scripts\setup-agents.ps1`). Para trocar os dois, rode uma variante de cada vez.
 
 ## Seguranca
 

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "heycode:protocol/v1/bridge-call",
+  "type": "object",
+  "required": [
+    "method",
+    "path"
+  ],
+  "properties": {
+    "method": {
+      "enum": [
+        "GET",
+        "POST"
+      ]
+    },
+    "path": {
+      "type": "string",
+      "pattern": "^/"
+    },
+    "body": {
+      "type": "object"
+    }
+  }
+}

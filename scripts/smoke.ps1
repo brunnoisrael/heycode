@@ -44,8 +44,8 @@ function Code($method, $path, $headers, $body) {
 
 $proc = $null
 try {
-    $proc = Start-Process python -ArgumentList "-m", "uvicorn", "server:app", "--host", "127.0.0.1", "--port", "$port" `
-        -WorkingDirectory (Join-Path $root "bridge") -WindowStyle Hidden -PassThru `
+    $proc = Start-Process python -ArgumentList "-m", "uvicorn", "heycode.app:app", "--host", "127.0.0.1", "--port", "$port" `
+        -WorkingDirectory $root -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $tmp "out.log") -RedirectStandardError (Join-Path $tmp "err.log")
     Write-Host "Ponte de teste: PID $($proc.Id), porta $port"
     $up = $false

@@ -1,9 +1,0 @@
-{
-  "hooks": {
-    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "python ~/claude-alexa-bridge/bridge/hook.py" }] }],
-    "PreToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "python ~/claude-alexa-bridge/bridge/hook.py" }] }],
-    "Notification":     [{ "hooks": [{ "type": "command", "command": "python ~/claude-alexa-bridge/bridge/hook.py" }] }],
-    "Stop":             [{ "hooks": [{ "type": "command", "command": "python ~/claude-alexa-bridge/bridge/hook.py" }] }],
-    "PermissionRequest":[{ "matcher": "*", "hooks": [{ "type": "command", "command": "python ~/claude-alexa-bridge/bridge/hook.py approve", "timeout": 60 }] }]
-  }
-}

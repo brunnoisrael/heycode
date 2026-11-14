@@ -1,0 +1,27 @@
+# Exemplo de configuracao (Fly.io). Copie para fly.toml e troque `app` e `primary_region`.
+# NAO ha segredos aqui: o relay nao precisa de nenhum segredo de plataforma alem do volume.
+app = "heycode-relay-staging"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RELAY_DB = "/data/relay.db"
+  RELAY_DAILY_QUOTA = "200"
+  RELAY_SYNC_TIMEOUT = "4"
+
+[mounts]
+  source = "relay_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "off"   # WebSocket de longa duracao: a maquina nao pode parar sozinha
+  min_machines_running = 1     # instancia unica no MVP (ADR 0035)
+
+  [[http_service.checks]]
+    path = "/health"
+    interval = "15s"
+    timeout = "3s"

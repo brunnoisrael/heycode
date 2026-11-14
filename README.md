@@ -48,16 +48,23 @@ As regras valem globalmente, com exceção por agente ou projeto ("no projeto X,
 ## Como funciona por dentro
 
 - **Estado em SQLite** (políticas, sessões, aprovações, instruções, execuções, aviso de fim de ciclo não lido, resumo da sessão e trava de PIN): sobrevive a reinício (ADR 0015). Aprovações pendentes expiram e execuções em andamento viram "interrompidas", sem aviso de fim de ciclo.
-- **Um único motor de políticas** (`bridge/policy`) decide `allow | deny | ask_voz | ask_teclado` para hooks, MCP e supervisor.
+- **Um único motor de políticas** (`src/heycode/policy`) decide `allow | deny | ask_voz | ask_teclado` para hooks, MCP e supervisor.
 - **Servidor MCP** (`roomcode`) com `registrar_status`, `pedir_decisao`, `reportar_fim` e `buscar_instrucao`.
 - **Supervisor** monta o comando de cada agente conforme a política (sandbox restrito fora do auto).
 - Aider não tem MCP nem hook de aprovação: só roda pelo supervisor.
 
 ## Instalação rápida
 
+```bash
+pipx install .                    # ou: python -m pip install .
+heycode init                      # diretório do usuário e segredos (não sobrescreve nada)
+heycode install-service --apply   # ponte em segundo plano (ou: heycode serve)
+heycode doctor                    # diagnóstico por camada
+```
+
+Guia completo, do zero ao primeiro status: [docs/QUICKSTART.md](docs/QUICKSTART.md). Operação (reiniciar, rotacionar, recuperar): [docs/OPERATIONS.md](docs/OPERATIONS.md). Opcionais no Windows:
+
 ```powershell
-pip install -r bridge/requirements.txt
-powershell -ExecutionPolicy Bypass -File scripts/install-service.ps1   # ponte como tarefa agendada (porta 8765)
 powershell -ExecutionPolicy Bypass -File scripts/setup-agents.ps1      # registra o MCP no Claude Code e no Codex
 powershell -ExecutionPolicy Bypass -File scripts/start-tunnel.ps1      # túnel HTTPS (rápido; veja o guia para o nomeado)
 powershell -ExecutionPolicy Bypass -File scripts/smoke.ps1             # confere tudo numa porta livre

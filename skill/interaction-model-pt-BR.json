@@ -4,6 +4,23 @@
       "invocationName": "meu agente",
       "intents": [
         {
+          "name": "RunCommandIntent",
+          "slots": [
+            {
+              "name": "comando",
+              "type": "AMAZON.SearchQuery"
+            }
+          ],
+          "samples": [
+            "executar {comando}",
+            "execute {comando}",
+            "rode {comando}",
+            "rodar {comando}",
+            "dispare {comando}",
+            "dispara {comando}"
+          ]
+        },
+        {
           "name": "AMAZON.CancelIntent",
           "samples": []
         },
@@ -344,6 +361,23 @@
     "dialog": {
       "intents": [
         {
+          "name": "RunCommandIntent",
+          "delegationStrategy": "SKILL_RESPONSE",
+          "confirmationRequired": false,
+          "prompts": {},
+          "slots": [
+            {
+              "name": "comando",
+              "type": "AMAZON.SearchQuery",
+              "confirmationRequired": false,
+              "elicitationRequired": true,
+              "prompts": {
+                "elicitation": "Elicit.Slot.RunCommand.comando"
+              }
+            }
+          ]
+        },
+        {
           "name": "AskAgentIntent",
           "delegationStrategy": "SKILL_RESPONSE",
           "confirmationRequired": false,
@@ -426,6 +460,15 @@
       "delegationStrategy": "SKILL_RESPONSE"
     },
     "prompts": [
+      {
+        "id": "Elicit.Slot.RunCommand.comando",
+        "variations": [
+          {
+            "type": "PlainText",
+            "value": "Qual comando?"
+          }
+        ]
+      },
       {
         "id": "Elicit.Slot.AskAgent.instrucao",
         "variations": [

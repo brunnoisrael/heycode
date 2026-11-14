@@ -1,0 +1,38 @@
+name: agent-review
+
+# G15: exige o parecer APPROVED, no commit atual do PR, de um revisor independente (conta distinta do autor).
+# O revisor e um agente de contexto novo que comenta/aprova via API; a conta fica na variavel AGENT_REVIEW_BOT.
+# Sem a variavel o check falha fechado. Nao substitui o humano em caminhos sensiveis (job human-approval).
+on:
+  pull_request:
+    branches: [main]
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+
+jobs:
+  agent-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Parecer do revisor independente no commit atual
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_REVIEW_BOT: ${{ vars.AGENT_REVIEW_BOT }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          gh api "repos/${{ github.repository }}/pulls/$PR/reviews" --paginate \
+            | jq -s 'add | map({user: .user.login, state: .state, commit: .commit_id})' > reviews.json
+          python scripts/gates/ci_range.py agent-review "$HEAD_SHA" reviews.json

@@ -1,5 +1,4 @@
 import pytest
-
 from commit_msg import check_commit_message
 
 VALID = "feat: algo\n\nSpec: docs/superpowers/specs/x.md"
@@ -9,7 +8,7 @@ VALID = "feat: algo\n\nSpec: docs/superpowers/specs/x.md"
 def repo(tmp_path):
     d = tmp_path / "docs" / "superpowers" / "specs"
     d.mkdir(parents=True)
-    (d / "x.md").write_text("spec", encoding="utf-8")
+    (d / "x.md").write_text("# T\n\nStatus: aprovada\n", encoding="utf-8")
     (tmp_path / "README.md").write_text("r", encoding="utf-8")
     return tmp_path
 
@@ -49,9 +48,7 @@ def test_merge_e_revert_sao_isentos(repo, config):
 
 def test_spec_fora_do_spec_dir_falha(repo, config):
     assert check_commit_message("feat: a\n\nSpec: README.md", repo, config)
-    assert check_commit_message(
-        "feat: a\n\nSpec: docs/superpowers/specs/../../../README.md", repo, config
-    )
+    assert check_commit_message("feat: a\n\nSpec: docs/superpowers/specs/../../../README.md", repo, config)
     ok = "feat: a\n\nSpec: docs\\superpowers\\specs\\x.md"
     assert check_commit_message(ok, repo, config) == []
 

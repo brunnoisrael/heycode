@@ -6,7 +6,6 @@ import pytest
 
 AGENT_SECRET = "agente-" + "a" * 40
 CONTROL_SECRET = "controle-" + "c" * 40
-BRIDGE_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "bridge")
 
 
 @pytest.fixture
@@ -19,11 +18,10 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("APPROVAL_WAIT", "1")
     monkeypatch.setenv("BRIDGE_PIN", "1234")
     monkeypatch.setenv("NTFY_TOPIC", "")
-    monkeypatch.syspath_prepend(os.path.abspath(BRIDGE_DIR))
-    if "server" in sys.modules:
-        server = importlib.reload(sys.modules["server"])
+    if "heycode.app" in sys.modules:
+        server = importlib.reload(sys.modules["heycode.app"])
     else:
-        server = importlib.import_module("server")
+        server = importlib.import_module("heycode.app")
     with TestClient(server.app, headers={"x-secret": CONTROL_SECRET}) as c:
         c.server = server
         c.agent_h = {"x-secret": AGENT_SECRET}      # hooks e MCP

@@ -1,6 +1,6 @@
 import pytest
 
-from bridge.policy.engine import decidir
+from heycode.policy.engine import decidir
 
 
 class FakeStore:

@@ -9,15 +9,16 @@ $root = Split-Path -Parent $PSScriptRoot
 $mcpUrl = $BridgeUrl.TrimEnd("/") + "/mcp"
 if ($DryRun) { Write-Host "[DryRun] nada sera alterado." }
 
-# segredo: ambiente ou .env
+# segredo: ambiente ou config.env do diretorio do usuario (HEYCODE_HOME ou %APPDATA%\heycode)
 $secret = $env:BRIDGE_SECRET
-$envFile = Join-Path $root ".env"
+$heycodeHome = if ($env:HEYCODE_HOME) { $env:HEYCODE_HOME } elseif ($env:APPDATA) { Join-Path $env:APPDATA "heycode" } else { Join-Path $HOME ".local\share\heycode" }
+$envFile = Join-Path $heycodeHome "config.env"
 if (-not $secret -and (Test-Path $envFile)) {
     foreach ($line in Get-Content $envFile) {
         if ($line -match '^\s*BRIDGE_SECRET\s*=\s*(.*?)\s*$') { $secret = $Matches[1].Trim('"') }
     }
 }
-if (-not $secret) { Write-Warning "BRIDGE_SECRET nao encontrado (ambiente ou .env)."; $secret = "<BRIDGE_SECRET>" }
+if (-not $secret) { Write-Warning "BRIDGE_SECRET nao encontrado (ambiente ou config.env); rode: heycode init"; $secret = "<BRIDGE_SECRET>" }
 
 # (a) Claude Code
 $claude = Get-Command claude -ErrorAction SilentlyContinue
