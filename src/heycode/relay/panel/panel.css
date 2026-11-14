@@ -244,3 +244,9 @@ dialog.modal::backdrop { background: color-mix(in srgb, #06090d 55%, transparent
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---------- ajustes finos ---------- */
+.error:empty { min-height: 0; margin: 0; }
+.cards .row { min-height: 30px; }
+.swatch:hover:not([disabled]) { transform: scale(1.08); }
+.auth form.card > button.primary { margin-top: 18px; }
