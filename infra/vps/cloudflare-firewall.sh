@@ -36,6 +36,10 @@ attach() { # $1 = iptables|ip6tables, $2 = expressao regular da familia
   "$cmd" -L DOCKER-USER -n >/dev/null 2>&1 || return 0 # sem Docker nesta familia: nada a filtrar aqui
   detach "$cmd"
   "$cmd" -N "$CHAIN"
+  # As portas de destino originais tambem existem nas conexoes de saida dos conteineres.
+  # So o trafego que entra pela rede externa deve passar pela allowlist da Cloudflare.
+  "$cmd" -A "$CHAIN" -i docker0 -j RETURN
+  "$cmd" -A "$CHAIN" -i br+ -j RETURN
   while read -r range; do
     "$cmd" -A "$CHAIN" -s "$range" -j RETURN
     count=$((count + 1))
@@ -88,8 +92,8 @@ case "${1:-apply}" in
     ;;
   status)
     iptables -S DOCKER-USER 2>/dev/null | grep -- "$CHAIN" || echo "iptables: sem filtro"
-    iptables -S "$CHAIN" 2>/dev/null | grep -c -- '-j RETURN' | sed 's/^/faixas IPv4 aceitas: /' || true
-    ip6tables -S "$CHAIN" 2>/dev/null | grep -c -- '-j RETURN' | sed 's/^/faixas IPv6 aceitas: /' || true
+    iptables -S "$CHAIN" 2>/dev/null | grep -c -- '-s .* -j RETURN' | sed 's/^/faixas IPv4 aceitas: /' || true
+    ip6tables -S "$CHAIN" 2>/dev/null | grep -c -- '-s .* -j RETURN' | sed 's/^/faixas IPv6 aceitas: /' || true
     ;;
   *)
     echo "uso: $0 apply|remove|status" >&2
