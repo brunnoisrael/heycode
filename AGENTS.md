@@ -4,6 +4,8 @@ Regras para qualquer agente de código (Claude Code, Codex, Aider) que trabalhe 
 
 ## O que é o projeto
 
+Este repositório contém dois componentes do HeyCode: a ponte local, em `src/heycode/` (incluindo `server.py`, adaptadores e políticas), executada no computador do usuário; e o relay compartilhado, em `src/heycode/relay/`, que serve também o painel web. A infraestrutura de implantação do relay fica em `infra/vps/`. São componentes distintos do mesmo repositório.
+
 RoomCode (antes "Alexa Agent Hub"): uma Alexa que opera os agentes de código do PC do dono. Hoje é uma ponte de leitura (hooks do
 Claude Code alimentam um servidor FastAPI; uma skill Alexa consulta status e aprova comandos Bash com PIN).
 O destino é um plano de controle por voz com políticas sobre todos os agentes (Claude Code, Codex, Aider), que
@@ -29,7 +31,7 @@ Editar um ADR existente não basta. Os caminhos que contam como arquitetura fica
 - `docs` e `chore` são isentos do trailer.
 - O CI é a autoridade dos gates (`docs/SDLC.md`, ADR 0024); os hooks locais são só conveniência. Nunca use
   `--no-verify`, nem altere gates, workflows, `AGENTS.md`, `CLAUDE.md`, `.claude/` ou CODEOWNERS sem pedido humano.
-- O remoto GitHub (conta do dono) ainda será criado por ele; até lá os commits são locais.
+- O remoto GitHub configurado é `origin`; a integração acontece na `main`.
 
 ## Comandos
 

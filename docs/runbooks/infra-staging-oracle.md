@@ -29,15 +29,18 @@ docker compose --env-file relay.env up -d --build      # depois de atualizar o c
 sudo systemctl list-timers heycode-backup.timer         # como ubuntu
 ```
 
-**Atualizar o código:** o servidor não tem acesso ao repositório (não há remoto Git ainda). Gere e envie um pacote:
+**Atualizar o código:** o servidor não tem checkout Git. Gere um pacote do commit integrado e registre sua identificação somente após a construção e o teste de saúde terem sucesso:
 
 ```bash
 git archive --format=tar.gz --prefix=heycode/ -o heycode-src.tar.gz HEAD     # na raiz do repositorio, no branch certo
+git rev-parse HEAD > VERSION
 scp -i CHAVE heycode-src.tar.gz deploy@IP:/tmp/
-ssh -i CHAVE deploy@IP 'cd /opt/heycode && tar xzf /tmp/heycode-src.tar.gz --strip-components=1 && cd infra/vps && docker compose --env-file relay.env up -d --build'
+scp -i CHAVE VERSION deploy@IP:/tmp/heycode-VERSION
+ssh -i CHAVE deploy@IP 'cd /opt/heycode && tar xzf /tmp/heycode-src.tar.gz --strip-components=1 && cd infra/vps && docker compose --env-file relay.env up -d --build && curl -fsS https://staging-api.heycode.dev.br/health && mv /tmp/heycode-VERSION /opt/heycode/VERSION'
 ```
 
 O `relay.env` não vem no pacote (não está no Git): ele permanece como está no servidor.
+Consulte `cat /opt/heycode/VERSION` para identificar o último deploy concluído. Se o deploy falhar, o arquivo mantém a versão anterior; o serviço pode exigir recuperação, portanto confira também a saúde e os logs. O SHA identifica o pacote implantado, não alterações manuais posteriores na VM.
 
 ## Como a VM foi criada (e por que levou tentativas)
 
