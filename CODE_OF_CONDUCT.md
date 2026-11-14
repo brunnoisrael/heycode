@@ -7,4 +7,4 @@ Queremos uma comunidade técnica acolhedora e objetiva.
 - Não é aceito assédio, discriminação, ameaça, exposição de dados pessoais ou de segredos de terceiros.
 - Quem mantém o projeto pode moderar, remover conteúdo e bloquear quem descumprir estas regras.
 
-Para relatar um problema de conduta, use o relato privado do GitHub descrito em `SECURITY.md` ou fale com um mantenedor listado em `.github/CODEOWNERS`.
+Para relatar um problema de conduta, use o relato privado do GitHub descrito em `SECURITY.md` ou fale com o mantenedor do repositório (`brunnoisrael` no GitHub).
