@@ -18,7 +18,7 @@ env:
 
 jobs:
   gates:
-    # G1-G8, G12, G16 (G13 e G9/G10 entram nas trilhas P1/P2)
+    # G1-G8, G16 (G13 e G9/G10 entram nas trilhas P1/P2)
     if: github.event_name != 'pull_request_review'
     runs-on: ubuntu-latest
     steps:
@@ -43,7 +43,7 @@ jobs:
       - name: G5 segredos em cada commit do intervalo
         if: ${{ !cancelled() }}
         run: python scripts/gates/secret_scan.py "$BASE_SHA" "$HEAD_SHA"
-      - name: G1-G4 e G12 em cada commit do intervalo
+      - name: G1-G4 em cada commit do intervalo
         if: ${{ !cancelled() }}
         run: python scripts/gates/ci_range.py range "$BASE_SHA" "$HEAD_SHA"
       - name: G7 testes Python com cobertura

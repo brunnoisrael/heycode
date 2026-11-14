@@ -41,4 +41,4 @@ O CI é a autoridade. Hook local ajuda a falhar cedo, mas o CI repete tudo, em c
 
 ## Commits
 
-Formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`). `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:`. Um commit por tarefa do plano, com no máximo 400 linhas adicionadas por PR (G12).
+Formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`). `feat`, `fix`, `test` e `refactor` exigem o trailer `Spec:`. Um commit por tarefa do plano. Não há limite de tamanho de PR (o G12 foi removido pelo ADR 0060).

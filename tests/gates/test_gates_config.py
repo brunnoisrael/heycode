@@ -4,8 +4,9 @@ def test_versao_2(config):
 
 def test_gates_ativos_e_desligados(config):
     enabled = set(config["enabled_gates"])
-    assert {"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G11", "G12", "G13", "G14", "G15", "G16"} <= enabled
+    assert {"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G11", "G13", "G14", "G15", "G16"} <= enabled
     assert "G9" not in enabled and "G10" not in enabled  # ligam na trilha P2
+    assert "G12" not in enabled  # removido pelo ADR 0060
 
 
 def test_caminhos_protegidos_cobrem_a_esteira(config):
@@ -28,7 +29,7 @@ def test_caminhos_de_revisao_humana_cobrem_o_nucleo_sensivel(config):
 
 
 def test_pisos_numericos(config):
-    assert config["max_added_lines"] == 400
+    assert "max_added_lines" not in config and "size_exclude_globs" not in config
     assert config["diff_coverage_floor"] == 90
     assert config["policy_branch_coverage_floor"] == 100
 

@@ -9,7 +9,7 @@ Todo o código deste projeto é produzido por agentes, e pessoas também podem c
 3. Mudança de arquitetura exige um **ADR novo** em `docs/adr/` (use `docs/adr/0000-template.md`).
 4. Escreva o plano, depois o teste que falha, depois o código mínimo.
 5. Commits no formato `tipo: descrição` (`feat|fix|docs|chore|test|refactor`); `feat`, `fix`, `test` e `refactor` levam o trailer `Spec: docs/superpowers/specs/<arquivo>.md`.
-6. Um PR por tarefa do plano, com até 400 linhas adicionadas (sem docs e travas). Preencha a seção **Evidência** com a saída real dos comandos.
+6. Um PR por entrega do plano, sem limite de linhas. Preencha a seção **Evidência** com a saída real dos comandos.
 
 ## Ambiente
 

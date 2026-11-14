@@ -96,11 +96,11 @@ def test_g4_feat_sem_teste_falha_no_ci(repo, config):
     assert any("G4:" in e for e in run(repo, config))
 
 
-def test_g12_pr_grande_falha(repo, config):
+def test_pr_grande_nao_e_barrado_por_tamanho(repo, config):
     start(repo)
-    big = "x = 1\n" * 401
+    big = "x = 1\n" * 2000
     commit(repo, f"feat: x\n\nSpec: {SPEC}", {"src/heycode/a.py": big, "tests/test_a.py": "t\n"})
-    assert any(e.startswith("G12") for e in run(repo, config))
+    assert run(repo, config) == []
 
 
 def test_segredo_adicionado_e_removido_no_pr_continua_detectado(repo):

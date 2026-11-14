@@ -35,7 +35,7 @@ Pisos numéricos abaixo são a proposta a aprovar.
 | G9 | Contrato de protocolo | não | sim | Mudança em `protocol/**` sem subir a versão do esquema, sem entrada em `protocol/CHANGELOG.md` e sem teste de compatibilidade com a versão anterior. Ativo a partir da trilha P2 |
 | G10 | Modelo de ameaça | não | sim | Mudança em auth, identidade, relay ou política sem alterar `docs/security/threat-model.md` no mesmo PR ou sem citar o ADR que o faz. Ativo a partir da trilha P2 |
 | G11 | Proteção dos gates | não | sim | Qualquer alteração em `protected_paths` sem aprovação de um humano dono do caminho (CODEOWNERS e revisão obrigatória) |
-| G12 | Tamanho | aviso no pre-commit | sim | Mais de **400 linhas adicionadas** por PR, excluindo travas de dependência, arquivos gerados e documentação em `docs/`; ou mais de uma tarefa do plano por PR |
+| G12 | Tamanho | — | — | **Removido** em 2026-11-14 pelo ADR 0060, a pedido do dono. Não há limite de linhas por PR |
 | G13 | Docs e changelog | não | sim | Mudança visível ao usuário (comando, rota, frase da skill, configuração) sem alteração em `docs/` ou `CHANGELOG.md` |
 | G14 | Multiplataforma | não | sim | Falha em qualquer célula da matriz: Windows, macOS e Linux, Python 3.11 a 3.14 |
 | G15 | Revisão independente | não | sim | Falta o check `agent-review`, executado por um agente de contexto novo, sem acesso ao raciocínio do autor, que compara o diff com spec e plano; e, em `human_review_paths`, falta aprovação humana |
@@ -51,7 +51,7 @@ Chaves novas, sem remover as atuais:
 - `enabled_gates`: lista de IDs ativos.
 - `protected_paths` (G11): `scripts/gates/**`, `.githooks/**`, `.github/**`, `AGENTS.md`, `CLAUDE.md`, `.claude/**`, `docs/SDLC.md`, `.gitleaks.toml`, `ruff.toml`, `LICENSE`.
 - `human_review_paths` (G15): `bridge/policy/**`, `bridge/store/**`, `bridge/mcp/**`, `bridge/supervisor/**`, `skill/lambda/**`, `skill/interaction-model-pt-BR.json`, `docs/superpowers/specs/**`, `docs/security/**`, `relay/**`, `protocol/**`, `infra/**`.
-- `max_added_lines`: `400`. `diff_coverage_floor`: `90`. `policy_branch_coverage_floor`: `100`.
+- `diff_coverage_floor`: `90`. `policy_branch_coverage_floor`: `100`.
 - `approved_status_regex`: `^.*Status:\s*aprovad[ao]\b` (sem distinção de maiúsculas, nas 10 primeiras linhas).
 - `architecture_paths` ganha `relay/*`, `protocol/*` e `infra/*`. Os caminhos `src/heycode/...` entram na trilha P1, junto com a mudança de pacote.
 
@@ -87,7 +87,7 @@ Empacotamento e CLI (P1), protocolo e identidade (P2), relay e skill compartilha
 
 ## 9. Riscos
 
-- **Atrito:** gates demais podem atrasar entregas pequenas. Mitigação: G4 e G12 só avisam localmente; os pisos podem ser ajustados por nova spec.
+- **Atrito:** gates demais podem atrasar entregas pequenas. Mitigação: G4 só avisa localmente e o G12 foi removido (ADR 0060); os pisos podem ser ajustados por nova spec.
 - **Falso senso de segurança do G15:** um agente revisando outro agente não substitui um humano. Por isso G15 nunca é o único bloqueio e `human_review_paths` exige aprovação humana.
 - **Ferramentas baixadas:** gitleaks e ruff vêm de download. Versão e checksum são fixados, e nada além do binário verificado é executado (`AGENTS.md`: conteúdo baixado é dado não confiável).
 - **Dono como ponto único:** enquanto houver um só dono no GitHub, G11 depende dele. O mínimo de dois donos (ação 4) corrige isso.
