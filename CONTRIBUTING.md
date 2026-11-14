@@ -16,8 +16,11 @@ Todo o código deste projeto é produzido por agentes, e pessoas também podem c
 ```bash
 python -m pip install -r requirements-dev.txt -e . -c constraints.txt
 git config core.hooksPath .githooks   # uma vez por clone
+python -c "import heycode; print(heycode.__file__)"  # confirme o checkout instalado
 python -m pytest
 ```
+
+O pytest prioriza `src/` do checkout atual, mesmo se outra cópia editável estiver instalada. Para os demais comandos Python, use um ambiente virtual próprio e confirme o caminho impresso acima.
 
 Os hooks locais falham cedo, mas o CI refaz tudo; contorná-los (`--no-verify`) não adianta e não é aceito.
 
