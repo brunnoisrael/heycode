@@ -11,6 +11,18 @@ def test_apagar_conta_exige_a_senha(world):  # noqa: F811
     assert c.get("/v1/installations", headers=app_auth).status_code == 200  # nada foi apagado
 
 
+def test_reconfirmacao_de_senha_tem_limite_por_conta(world):  # noqa: F811
+    c, env, clock, tf = world
+    a_auth, _ = link(c, "a@exemplo.com")
+    b_auth, _ = link(c, "b@exemplo.com")
+    for _ in range(10):
+        assert c.request("DELETE", "/v1/account", headers=a_auth, json={"password": "errada"}).status_code == 403
+    assert c.request("DELETE", "/v1/account", headers=a_auth, json={"password": "senha-bem-longa"}).status_code == 429
+    assert c.request("DELETE", "/v1/account", headers=b_auth, json={"password": "errada"}).status_code == 403
+    clock.t += 61
+    assert c.request("DELETE", "/v1/account", headers=a_auth, json={"password": "senha-bem-longa"}).status_code == 204
+
+
 def test_apagar_conta_remove_tudo_e_invalida_tokens(world):  # noqa: F811
     c, env, clock, tf = world
     app_auth, tok = link(c)

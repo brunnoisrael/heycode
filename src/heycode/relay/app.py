@@ -148,6 +148,7 @@ def create_app(
     oauth_server = OAuthServer(repo, accounts, clock, oauth) if oauth else None
     replay = ReplayWindow()
     login_limiter = RateLimiter(clock, limit=10, window=60.0)
+    deletion_limiter = RateLimiter(clock, limit=10, window=60.0)
     names: dict[str, str] = {}
     done: dict[str, str] = {}
     app.state.repo, app.state.clock, app.state.accounts, app.state.pairing = repo, clock, accounts, pairing
@@ -566,6 +567,9 @@ def create_app(
 
     @app.delete("/v1/account", status_code=204)
     async def delete_account(body: DeleteAccountBody, account_id: str = Depends(current_account)) -> Response:
+        # Limita tentativas de senha por conta, mesmo com várias sessões.
+        if not deletion_limiter.allow(account_id):
+            raise HTTPException(429, "muitas tentativas")
         email = repo.get_account_email(account_id)
         try:
             accounts.check_credentials(email or "", body.password)
