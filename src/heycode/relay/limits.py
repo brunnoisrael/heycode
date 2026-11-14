@@ -3,6 +3,7 @@
 import time
 from collections import defaultdict, deque
 from collections.abc import Callable
+from threading import Lock
 
 
 class RateLimiter:
@@ -13,16 +14,18 @@ class RateLimiter:
         self._limit = limit
         self._window = window
         self._events: dict[str, deque[float]] = defaultdict(deque)
+        self._lock = Lock()
 
     def allow(self, key: str) -> bool:
-        now = self._clock()
-        q = self._events[key]
-        while q and now - q[0] > self._window:
-            q.popleft()
-        if len(q) >= self._limit:
-            return False
-        q.append(now)
-        return True
+        with self._lock:
+            now = self._clock()
+            q = self._events[key]
+            while q and now - q[0] > self._window:
+                q.popleft()
+            if len(q) >= self._limit:
+                return False
+            q.append(now)
+            return True
 
 
 def day_key(now: float) -> str:

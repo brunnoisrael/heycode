@@ -148,6 +148,7 @@ def create_app(
     oauth_server = OAuthServer(repo, accounts, clock, oauth) if oauth else None
     replay = ReplayWindow()
     login_limiter = RateLimiter(clock, limit=10, window=60.0)
+    registration_limiter = RateLimiter(clock, limit=10, window=60.0)
     deletion_limiter = RateLimiter(clock, limit=10, window=60.0)
     names: dict[str, str] = {}
     done: dict[str, str] = {}
@@ -215,7 +216,10 @@ def create_app(
         return {"ok": True}
 
     @app.post("/v1/register", status_code=201)
-    def register(body: Credentials) -> dict:
+    def register(body: Credentials, request: Request) -> dict:
+        source = request.client.host if request.client else "desconhecida"
+        if not registration_limiter.allow(source):
+            raise HTTPException(429, "muitas tentativas")
         try:
             return {"account_id": accounts.register(body.email, body.password)}
         except AccountError as exc:
