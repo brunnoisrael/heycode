@@ -103,33 +103,6 @@ def test_g12_pr_grande_falha(repo, config):
     assert any(e.startswith("G12") for e in run(repo, config))
 
 
-def test_excecao_inicial_so_libera_historico_identificado(repo, config, monkeypatch):
-    import ci_range
-
-    start(repo)
-    base = git(repo, "rev-parse", "main")
-    commit(repo, f"feat: historico\n\nSpec: {SPEC}", {"src/heycode/a.py": "x = 1\n" * 401, "tests/test_a.py": "t\n"})
-    history = git(repo, "rev-parse", "HEAD")
-    monkeypatch.setattr(ci_range, "INITIAL_BASE", base)
-    monkeypatch.setattr(ci_range, "INITIAL_HISTORY", history)
-    assert run(repo, config) == []
-    commit(repo, f"feat: adicional\n\nSpec: {SPEC}", {"src/heycode/b.py": "x = 1\n" * 401, "tests/test_b.py": "t\n"})
-    assert any(e.startswith("G12") for e in run(repo, config))
-
-
-def test_excecao_inicial_nao_vale_para_base_ou_historico_diferente(repo, config, monkeypatch):
-    import ci_range
-
-    start(repo)
-    commit(repo, f"feat: historico\n\nSpec: {SPEC}", {"src/heycode/a.py": "x = 1\n" * 401, "tests/test_a.py": "t\n"})
-    history = git(repo, "rev-parse", "HEAD")
-    monkeypatch.setattr(ci_range, "INITIAL_HISTORY", history)
-    assert any(e.startswith("G12") for e in run(repo, config))
-    monkeypatch.setattr(ci_range, "INITIAL_BASE", git(repo, "rev-parse", "main"))
-    monkeypatch.setattr(ci_range, "INITIAL_HISTORY", "0" * 40)
-    assert any(e.startswith("G12") for e in run(repo, config))
-
-
 def test_segredo_adicionado_e_removido_no_pr_continua_detectado(repo):
     from secret_scan import scan_range
 

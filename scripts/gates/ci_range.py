@@ -13,8 +13,6 @@ from commit_msg import TYPE_RE, check_commit_message  # noqa: E402
 from pre_commit import check_diff_size, check_staged, check_tests_with_code, parse_name_status  # noqa: E402
 
 CONFIG_PATH = Path(__file__).with_name("gates.json")
-INITIAL_BASE = "f9e28f2a315160d2c858aa429503381197616445"
-INITIAL_HISTORY = "d01915d62dc0025e676f274b7ce80c01aa16809c"
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -44,15 +42,8 @@ def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str
         if m:
             paths = [p for s, p in files if s != "D"]
             errors += [f"{tag}: {e}" for e in check_tests_with_code(paths, m.group(1), config)]
-    size_base = base
-    if _git(repo, "rev-parse", base).strip() == INITIAL_BASE:
-        try:
-            _git(repo, "merge-base", "--is-ancestor", INITIAL_HISTORY, head)
-            size_base = INITIAL_HISTORY
-        except subprocess.CalledProcessError:
-            pass
     added: dict[str, int] = {}
-    for entry in _git(repo, "diff", "--numstat", "-z", f"{size_base}..{head}").split("\0"):
+    for entry in _git(repo, "diff", "--numstat", "-z", f"{base}..{head}").split("\0"):
         parts = entry.split("\t")
         if len(parts) == 3 and parts[0].isdigit():
             added[parts[2]] = int(parts[0])
