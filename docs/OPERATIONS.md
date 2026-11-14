@@ -77,3 +77,7 @@ heycode command disable|enable|remove 'reiniciar app'
 - O painel mostra o resumo e pode **desligar** um comando (interruptor de segurança); ligar, criar e editar só pelo CLI.
 - O que a voz executou aparece no rastro (nome, risco e resultado), nunca a saída do comando.
 - No Windows use o caminho completo do programa em `--script --`.
+
+## Staging e console da Alexa
+
+Estado, operação e armadilhas: `docs/runbooks/infra-staging-oracle.md` (VM Oracle, DNS, backup, atualização) e `docs/runbooks/console-alexa-skill-compartilhada.md` (skill, account linking, teste). Ferramentas: `scripts/ops/`.
