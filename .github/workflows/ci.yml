@@ -49,7 +49,7 @@ jobs:
       - name: G7 testes Python com cobertura
         if: ${{ !cancelled() }}
         run: |
-          python -m coverage run --branch --source=src/heycode,scripts/gates -m pytest -q
+          python -m coverage run --branch --source=src/heycode,scripts/gates,scripts/ops -m pytest -q
           python -m coverage json -o coverage.json
       - name: G7 cobertura das linhas novas e ramos da politica
         if: ${{ !cancelled() }}
