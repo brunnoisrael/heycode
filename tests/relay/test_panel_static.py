@@ -92,5 +92,14 @@ def test_css_sem_import_nem_url_externa():
 
 def test_painel_cobre_as_telas_da_spec():
     js = (PANEL / "panel.js").read_text(encoding="utf-8")
-    for rota in ("#/inicio", "#/computadores", "#/dispositivos", "#/rastro", "#/comandos", "#/parear", "#/conta"):
+    for rota in (
+        "#/inicio",
+        "#/computadores",
+        "#/dispositivos",
+        "#/rastro",
+        "#/comandos",
+        "#/parear",
+        "#/plano",
+        "#/conta",
+    ):
         assert rota in js, rota
