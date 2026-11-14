@@ -1,4 +1,4 @@
-"""Gate G16: o PR precisa trazer a secao "Evidencia" com comando e saida reais colados."""
+"""Gate G16: a mensagem da entrega traz comando e saida reais colados."""
 
 import os
 import re
@@ -11,7 +11,7 @@ FENCE = re.compile(r"^`{3}[^\n]*\n(.*?)^`{3}\s*$", re.MULTILINE | re.DOTALL)
 def check_evidence(body: str) -> list[str]:
     section = SECTION.search(body or "")
     if not section:
-        return ["G16: o PR nao tem a secao '## Evidencia'."]
+        return ["G16: a entrega nao tem a secao '## Evidencia'."]
     for block in FENCE.findall(section.group(1)):
         lines = [ln for ln in block.splitlines() if ln.strip()]
         if len(lines) >= 2:  # comando + pelo menos uma linha de saida

@@ -2,24 +2,47 @@ name: CI
 
 # Autoridade dos gates (docs/SDLC.md, ADR 0024). Os hooks locais sao conveniencia; aqui tudo e refeito do zero.
 on:
-  pull_request:
-    branches: [main]
-  pull_request_review:
-    types: [submitted, dismissed]
   push:
-    branches: [main]
+    branches: ['**']
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 env:
-  BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-  HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+  HEAD_SHA: ${{ github.sha }}
 
 jobs:
+  base:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.interval.outputs.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: interval
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [ "$BRANCH" = main ]; then
+            if [ "$EVENT" = push ]; then base="$BEFORE"; else base="$(git rev-parse HEAD^)"; fi
+          else
+            git merge-base --is-ancestor refs/remotes/origin/main "$HEAD_SHA"
+            base="$(git rev-parse refs/remotes/origin/main)"
+          fi
+          git cat-file -e "$base^{commit}"
+          echo "sha=$base" >> "$GITHUB_OUTPUT"
+
   gates:
     # G1-G8, G12, G16 (G13 e G9/G10 entram nas trilhas P1/P2)
-    if: github.event_name != 'pull_request_review'
+    needs: base
+    env:
+      BASE_SHA: ${{ needs.base.outputs.sha }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,7 +91,6 @@ jobs:
 
   tests:
     # G14: matriz de sistemas e versoes
-    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
@@ -86,8 +108,7 @@ jobs:
       - run: python -m pytest -q
 
   evidencia:
-    # G16: o PR precisa trazer a secao "Evidencia" com saida de comando real
-    if: github.event_name == 'pull_request'
+    # G16: a mensagem do commit da entrega registra comando e saida.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -97,13 +118,27 @@ jobs:
         with:
           python-version: "3.12"
       - name: Secao Evidencia preenchida
+        run: |
+          git log -1 --format=%B "$HEAD_SHA" > commit-message.txt
+          BODY="$(cat commit-message.txt)" python scripts/gates/evidence.py
+
+  revisao-independente:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Parecer independente no commit exato
         env:
-          BODY: ${{ github.event.pull_request.body }}
-        run: python scripts/gates/evidence.py
+          GH_TOKEN: ${{ github.token }}
+          INDEPENDENT_REVIEWER: ${{ vars.INDEPENDENT_REVIEWER }}
+        run: python scripts/gates/commit_review.py
 
   instalacao-limpa:
     # Meta da P1: roda recem-construida, em ambiente virtual novo, sem editar nada a mao, em ate 5 minutos
-    if: github.event_name != 'pull_request_review'
     strategy:
       fail-fast: false
       matrix:
