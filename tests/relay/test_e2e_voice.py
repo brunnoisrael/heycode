@@ -426,7 +426,12 @@ def test_comando_local_leitura_roda_direto_confirmar_e_pin_seguem_o_fluxo(world)
             ]
         }
         linhas = httpx.get(base + "/v1/audit", headers=auth, params={"limit": 50}).json()
-        assert "ver disco" in {r["label"] for r in linhas} and "1234" not in str(linhas)
+        assert "ver disco" in {r["label"] for r in linhas}
+        # IDs e horários podem conter os mesmos dígitos por acaso; inspecione o conteúdo auditado.
+        for linha in linhas:
+            for campo, valor in linha.items():
+                if campo not in {"id", "t", "installation_id"}:
+                    assert "1234" not in str(valor or "")
     finally:
         m.stop()
 

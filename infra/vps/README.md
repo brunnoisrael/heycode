@@ -39,7 +39,35 @@ sudo systemctl start heycode-backup.service && journalctl -u heycode-backup.serv
 
 Cada execução grava `relay-AAAAMMDDTHHMMSSZ.db.gz` (modo 600) em `/var/backups/heycode`, valida que o arquivo abre e tem as tabelas e guarda os 14 mais recentes. **O backup só local não conta.** Para copiar para fora, instale e configure o `rclone` (por exemplo Backblaze B2 ou um bucket privado) e crie `/opt/heycode/infra/vps/backup.env` (modo 600) com `BACKUP_REMOTE=meu-remote:heycode`. Teste a restauração (`docs/runbooks/restauracao-do-banco.md`) antes de confiar.
 
-## 5. Operação
+## 5. Proteção contra abuso (Cloudflare na frente)
+
+Decisão: ADR 0058. Estado: **não validado em VM real** (Caddyfile novo, script de firewall e renovação do certificado atrás do proxy). Faça na ordem; cada passo tem conferência e volta atrás.
+
+1. **Suba primeiro com a nuvem cinza** (seção 2) e confirme `https://staging-api.heycode.dev.br/health`. O certificado precisa existir antes de ligar o proxy.
+2. **Confira o Caddyfile** depois de qualquer edição: `docker compose exec caddy caddy validate --config /etc/caddy/Caddyfile`, e recarregue com `docker compose restart caddy`.
+3. **Na Cloudflare** (painel do domínio `heycode.dev.br`):
+   - SSL/TLS → modo **Full (strict)**.
+   - DNS → ligue o proxy (**nuvem laranja**) em `staging-api` e `staging-app`.
+   - Network → **WebSockets** ligado (as máquinas conectam por `wss://`).
+   - Security → WAF → Rate limiting rules: uma regra (o plano grátis dá uma), por IP, por exemplo 300 pedidos em 1 minuto no caminho `/v1/*` → bloquear por 1 minuto. O relay já limita em 240/min; esta barra antes de chegar na VM.
+   - Security → Bots: ligue o **Bot Fight Mode**. Se a Alexa passar a falhar, crie uma regra de exceção para o caminho `/v1/alexa`.
+   - Sob ataque: Security → **Under Attack Mode**. Ele põe um desafio de navegador na frente e **quebra a Alexa e as máquinas** enquanto estiver ligado; use só durante o ataque, ou restrinja por regra ao caminho `/app`.
+4. **Confira o IP real**: entre no painel pela internet do celular e veja, em `docker compose logs relay`, que os pedidos aparecem com o seu IP, não com um IP da Cloudflare.
+5. **Feche a VM para o resto da internet** (como `ubuntu`, com `sudo`):
+   ```bash
+   sudo install -m 644 /opt/heycode/infra/vps/heycode-firewall.service /etc/systemd/system/
+   sudo systemctl daemon-reload && sudo systemctl enable --now heycode-firewall.service
+   sudo bash /opt/heycode/infra/vps/cloudflare-firewall.sh status
+   ```
+   Na lista de segurança da Oracle, restrinja 80 e 443 às mesmas faixas se quiser a trava também fora da VM.
+6. **Teste**: de um computador qualquer, `curl -m 5 -k https://IP_DA_VM/health` deve dar tempo esgotado, e `curl https://staging-api.heycode.dev.br/health` deve responder.
+7. **Voltar atrás**: `sudo systemctl disable --now heycode-firewall.service && sudo bash /opt/heycode/infra/vps/cloudflare-firewall.sh remove`; na Cloudflare, volte os registros para a nuvem cinza.
+
+Manutenção: as faixas da Cloudflare ficam em `cloudflare-ips.txt` **e** no `Caddyfile`. Ao atualizar (compare com https://www.cloudflare.com/ips/), mude os dois, reinicie o Caddy e rode `sudo systemctl restart heycode-firewall.service`. A renovação do certificado passa pelo proxy; se `docker compose logs caddy` mostrar falha de renovação, volte a nuvem cinza por alguns minutos e reinicie o Caddy.
+
+O que o relay faz sozinho (sem configuração): 240 pedidos/min por IP, banimento de 15 min para quem insiste, limites de login por IP e por e-mail, tetos de corpo e de conexões. Reiniciar o relay zera contadores e banimentos.
+
+## 6. Operação
 
 - Atualizar: `git pull && docker compose --env-file relay.env up -d --build`.
 - Logs: `docker compose logs -f relay`; reinício: `docker compose restart relay`.

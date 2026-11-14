@@ -27,10 +27,22 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # tetos (ADR 0058): um pico no relay nao derruba o Caddy nem o SSH da VM de 1 GB
+    mem_limit: 512m
+    cpus: 1.5
+    pids_limit: 256
+    logging: &logs
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   caddy:
     image: caddy:2
     restart: unless-stopped
+    mem_limit: 256m
+    pids_limit: 256
+    logging: *logs
     depends_on:
       relay:
         condition: service_healthy

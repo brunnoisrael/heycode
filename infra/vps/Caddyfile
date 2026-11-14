@@ -1,20 +1,40 @@
 # Troque os dois dominios pelos reais antes de subir. O Caddy obtem e renova os certificados sozinho
 # (Let's Encrypt) e exige que o DNS dos dois nomes ja aponte para o IP publico deste servidor.
+# Borda: ADR 0058. A Cloudflare fica na frente; o Caddy so acredita no IP de cliente que ELA informa.
 {
 	# e-mail para avisos de certificado (opcional)
 	# email voce@exemplo.com
+
+	servers {
+		# Faixas da Cloudflare (mesma lista de cloudflare-ips.txt; atualize as duas juntas).
+		# So uma conexao vinda dessas faixas pode dizer qual e o IP real do cliente.
+		trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+		client_ip_headers CF-Connecting-IP
+		timeouts {
+			read_header 10s # quem abre a conexao e nao manda o pedido e solto (slowloris)
+			idle 2m
+		}
+		max_header_size 16KB
+	}
 }
 
 staging-api.heycode.dev.br, staging-app.heycode.dev.br {
 	encode zstd gzip
 
 	header {
-		Strict-Transport-Security "max-age=31536000"
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		-Server
 	}
 
-	# O relay confia no X-Forwarded-For que o Caddy envia (ADR 0040).
+	# Nenhuma rota do relay precisa de corpo maior (a maior e a da Alexa, com 256 KiB no app).
+	request_body {
+		max_size 256KB
+	}
+
+	# O relay limita e bane por IP e confia no X-Forwarded-For que o Caddy envia (ADR 0040).
+	# {client_ip} e o IP real: o da Cloudflare so e trocado pelo do visitante se a conexao veio dela.
 	reverse_proxy relay:8080 {
-		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-For {client_ip}
+		header_up -CF-Connecting-IP
 	}
 }
