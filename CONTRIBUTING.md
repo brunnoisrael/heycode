@@ -23,7 +23,7 @@ Os hooks locais falham cedo, mas o CI refaz tudo; contorná-los (`--no-verify`) 
 
 ## O que exige aprovação humana
 
-Gates, workflows, `AGENTS.md`, `CLAUDE.md`, `.claude/`, CODEOWNERS e os caminhos sensíveis (políticas, estado, MCP, supervisor, skill, specs, segurança). A lista fica em `scripts/gates/gates.json`.
+Só a aprovação da spec (`Status: aprovada`). Os PRs passam pelos testes e gates técnicos do CI; revisão humana ou por bot é opcional (ADR 0061).
 
 ## Segurança
 

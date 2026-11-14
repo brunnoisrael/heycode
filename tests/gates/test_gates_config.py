@@ -4,27 +4,8 @@ def test_versao_2(config):
 
 def test_gates_ativos_e_desligados(config):
     enabled = set(config["enabled_gates"])
-    assert {"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G11", "G12", "G13", "G14", "G15", "G16"} <= enabled
+    assert {"G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G12", "G13", "G14", "G16"} <= enabled
     assert "G9" not in enabled and "G10" not in enabled  # ligam na trilha P2
-
-
-def test_caminhos_protegidos_cobrem_a_esteira(config):
-    protected = set(config["protected_paths"])
-    for p in ("scripts/gates/**", ".githooks/**", ".github/**", "AGENTS.md", "CLAUDE.md", ".claude/**", "docs/SDLC.md"):
-        assert p in protected
-
-
-def test_caminhos_de_revisao_humana_cobrem_o_nucleo_sensivel(config):
-    human = set(config["human_review_paths"])
-    for p in (
-        "src/heycode/policy/**",
-        "src/heycode/store/**",
-        "src/heycode/mcp_server/**",
-        "src/heycode/supervisor/**",
-        "skill/lambda/**",
-        "docs/superpowers/specs/**",
-    ):
-        assert p in human
 
 
 def test_pisos_numericos(config):
@@ -50,5 +31,13 @@ def test_regex_de_status_aprovado_compila(config):
     assert re.compile(config["approved_status_regex"], re.IGNORECASE).match("Status: aprovada pelo dono")
 
 
-def test_donos_humanos_configurados(config):
-    assert config["human_owners"] and all(isinstance(o, str) and o for o in config["human_owners"])
+def test_revisoes_de_pr_nao_sao_gates(config):
+    assert not {"G11", "G15"} & set(config["enabled_gates"])
+
+
+def test_ci_nao_exige_revisao_de_pr():
+    from pathlib import Path
+
+    workflows = Path(__file__).resolve().parents[2] / ".github" / "workflows"
+    assert not (workflows / "agent-review.yml").exists()
+    assert "human-approval:" not in (workflows / "ci.yml").read_text(encoding="utf-8")

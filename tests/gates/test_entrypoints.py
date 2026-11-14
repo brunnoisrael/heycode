@@ -63,24 +63,8 @@ def test_ci_range_com_erro_imprime_e_retorna_1(repo, capsys):
     assert "ci:" in capsys.readouterr().err
 
 
-def test_ci_approvals_sem_aprovador_falha_e_com_dono_passa(repo, monkeypatch):
-    git(repo, "checkout", "-q", "-b", "pr")
-    commit(repo, "chore: gate", {"scripts/gates/x.py": "x = 1\n"})
-    monkeypatch.setenv("PR_AUTHOR", "robo")
-    monkeypatch.setenv("PR_APPROVERS", "")
+def test_ci_modo_approvals_nao_existe_mais(repo):
     assert ci_main(["ci", "approvals", "main", "HEAD"], repo) == 1
-    owner = json.loads((GATES / "gates.json").read_text(encoding="utf-8"))["human_owners"][0]
-    monkeypatch.setenv("PR_APPROVERS", owner)
-    assert ci_main(["ci", "approvals", "main", "HEAD"], repo) == 0
-
-
-def test_ci_agent_review_le_o_arquivo_de_pareceres(repo, monkeypatch, tmp_path):
-    reviews = tmp_path / "reviews.json"
-    reviews.write_text(json.dumps([{"user": "rev", "state": "APPROVED", "commit": "abc"}]), encoding="utf-8")
-    monkeypatch.setenv("AGENT_REVIEW_BOT", "rev")
-    monkeypatch.setenv("PR_AUTHOR", "robo")
-    assert ci_main(["ci", "agent-review", "abc", str(reviews)], repo) == 0
-    assert ci_main(["ci", "agent-review", "outro", str(reviews)], repo) == 1
 
 
 def test_ci_modo_desconhecido_falha(repo):

@@ -1,8 +1,6 @@
-"""Gates do CI (autoridade): repetem G1-G4 e G12 em cada commit do PR; G11/G15 exigem aprovacao humana/revisor."""
+"""Gates do CI: verificam commits e o tamanho das alterações."""
 
-import fnmatch
 import json
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -50,55 +48,12 @@ def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str
     return errors + check_diff_size(added, config)
 
 
-def _touched(changed: list[str], globs: list[str]) -> list[str]:
-    return [p for p in changed if any(fnmatch.fnmatch(p, g) for g in globs)]
-
-
-def check_protected(changed: list[str], approvers: set[str], author: str, config: dict) -> list[str]:
-    """G11/G15: caminhos protegidos e sensiveis exigem aprovacao de um humano dono que nao seja o autor."""
-    touched = _touched(changed, config["protected_paths"] + config["human_review_paths"])
-    if not touched:
-        return []
-    owners = set(config.get("human_owners", []))
-    if not owners:
-        return ["G11: 'human_owners' vazio em gates.json; sem donos humanos nao ha como aprovar: " + ", ".join(touched)]
-    if (approvers & owners) - {author}:
-        return []
-    return [
-        "G11: caminhos protegidos/sensiveis exigem aprovacao de um dono humano diferente do autor: "
-        + ", ".join(touched)
-    ]
-
-
-def check_agent_review(reviews: list[dict], head_sha: str, bot_login: str, author: str) -> list[str]:
-    """G15: o ultimo parecer do revisor independente no commit atual precisa ser APPROVED."""
-    if not bot_login:
-        return ["G15: revisor independente nao configurado (AGENT_REVIEW_BOT vazio); falha fechada."]
-    if bot_login == author:
-        return ["G15: o revisor independente nao pode ser o autor do PR."]
-    mine = [r for r in reviews if r["user"] == bot_login and r["commit"] == head_sha]
-    if not mine:
-        return [f"G15: sem revisao de {bot_login} no commit {head_sha[:7]}."]
-    if mine[-1]["state"] != "APPROVED":
-        return [f"G15: ultimo parecer de {bot_login} e {mine[-1]['state']}."]
-    return []
-
-
 def main(argv: list[str], repo: Path | None = None) -> int:
     config = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
     mode = argv[1]
     repo = repo or Path(__file__).resolve().parents[2]
     if mode == "range":
         errors = check_range(argv[2], argv[3], config, repo)
-    elif mode == "approvals":
-        changed = changed_files(repo, argv[2], argv[3])
-        approvers = {a for a in os.environ.get("PR_APPROVERS", "").split(",") if a}
-        errors = check_protected(changed, approvers, os.environ.get("PR_AUTHOR", ""), config)
-    elif mode == "agent-review":
-        reviews = json.loads(Path(argv[3]).read_text(encoding="utf-8"))
-        errors = check_agent_review(
-            reviews, argv[2], os.environ.get("AGENT_REVIEW_BOT", ""), os.environ.get("PR_AUTHOR", "")
-        )
     else:
         errors = [f"modo desconhecido: {mode}"]
     for e in errors:

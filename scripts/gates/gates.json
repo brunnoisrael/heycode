@@ -1,8 +1,31 @@
 {
   "version": 2,
-  "enabled_gates": ["G1", "G2", "G3", "G4", "G5", "G6", "G7", "G8", "G11", "G12", "G13", "G14", "G15", "G16"],
-  "exempt_types": ["docs", "chore"],
-  "valid_types": ["feat", "fix", "docs", "chore", "test", "refactor"],
+  "enabled_gates": [
+    "G1",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6",
+    "G7",
+    "G8",
+    "G12",
+    "G13",
+    "G14",
+    "G16"
+  ],
+  "exempt_types": [
+    "docs",
+    "chore"
+  ],
+  "valid_types": [
+    "feat",
+    "fix",
+    "docs",
+    "chore",
+    "test",
+    "refactor"
+  ],
   "spec_dir": "docs/superpowers/specs",
   "approved_status_regex": "^.*Status:\\s*aprovad[ao]\\b",
   "architecture_paths": [
@@ -16,36 +39,28 @@
     "infra/*"
   ],
   "adr_dir": "docs/adr",
-  "protected_paths": [
-    "scripts/gates/**",
-    ".githooks/**",
-    ".github/**",
-    "AGENTS.md",
-    "CLAUDE.md",
-    ".claude/**",
-    "docs/SDLC.md",
-    ".gitleaks.toml",
-    "ruff.toml",
-    "LICENSE"
+  "code_globs": [
+    "src/*.py",
+    "relay/*.py",
+    "scripts/*.py",
+    "skill/lambda/*.js"
   ],
-  "human_review_paths": [
-    "src/heycode/policy/**",
-    "src/heycode/store/**",
-    "src/heycode/mcp_server/**",
-    "src/heycode/supervisor/**",
-    "skill/lambda/**",
-    "skill/interaction-model-pt-BR.json",
-    "docs/superpowers/specs/**",
-    "docs/security/**",
-    "relay/**",
-    "protocol/**",
-    "infra/**"
+  "test_globs": [
+    "tests/*",
+    "*/test/*",
+    "*test_*.py",
+    "*.test.js"
   ],
-  "code_globs": ["src/*.py", "relay/*.py", "scripts/*.py", "skill/lambda/*.js"],
-  "test_globs": ["tests/*", "*/test/*", "*test_*.py", "*.test.js"],
-  "ignored_code_globs": ["*node_modules/*"],
-  "size_exclude_globs": ["docs/*", "*package-lock.json", "*.lock", "*requirements*.txt", "*.db"],
-  "human_owners": ["brunnoisrael"],
+  "ignored_code_globs": [
+    "*node_modules/*"
+  ],
+  "size_exclude_globs": [
+    "docs/*",
+    "*package-lock.json",
+    "*.lock",
+    "*requirements*.txt",
+    "*.db"
+  ],
   "max_added_lines": 400,
   "diff_coverage_floor": 90,
   "policy_branch_coverage_floor": 100
