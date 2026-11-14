@@ -85,7 +85,7 @@ def test_01_cria_a_conta_e_cai_na_visao_geral_vazia(page, server):
     assert page.get_attribute("nav a[aria-current=page]", "href") == "#/inicio"
     assert [t.strip().split()[0] for t in page.locator(".stat-value").all_inner_texts()] == ["0", "0", "0"]
     assert page.locator(".steps li.done").count() == 0 and "Nada registrado ainda" in page.inner_text("main")
-    assert page.locator("nav svg.icon").count() == 7 and EMAIL in page.inner_text(".who")
+    assert page.locator("nav svg.icon").count() == 8 and EMAIL in page.inner_text(".who")
     nav(page, "Computadores")
     assert "Nenhum computador pareado" in page.inner_text("main")
     assert page.get_attribute("nav a[aria-current=page]", "href") == "#/computadores"
@@ -288,6 +288,25 @@ def test_09_tema_e_cor_persistem_so_no_navegador(page):
     assert sorted(page.evaluate("Object.keys(localStorage)")) == ["hc_accent", "hc_theme"]
 
 
+def test_09b_plano_mostra_uso_niveis_e_anota_o_pedido_de_apoio(page, server):
+    base, repo = server
+    nav(page, "Plano e apoio")
+    expect(page.locator("main")).to_contain_text("Seu uso no nível Livre")
+    assert page.locator(".usage").count() == 3 and "2 de 2" in page.inner_text(".usage >> nth=0")
+    assert page.locator(".meter.full span").first.evaluate("e => e.style.width") == "100%"  # dois computadores: no teto
+    assert page.locator(".meter:not(.full)").count() == 2
+    assert page.locator(".tier").count() == 3 and page.locator(".tier.current h2").inner_text() == "Livre"
+    text = page.inner_text("main").lower()
+    assert "contribuição sugerida" in text and "comprar" not in text and "assinar" not in text
+    page.get_by_role("button", name="Quero apoiar como Apoiador").click()
+    expect(page.locator("#toast")).to_contain_text("Anotado")
+    expect(page.locator(".tier", has_text="Apoiador").locator(".badge")).to_have_text("pedido feito")
+    assert [r["interest"] for r in repo.list_plan_interest()] == ["apoiador"]
+    page.get_by_role("button", name="Retirar pedido").click()
+    expect(page.get_by_role("button", name="Quero apoiar como Apoiador")).to_be_visible()
+    assert repo.list_plan_interest() == []
+
+
 def test_10_nenhuma_excecao_de_js_nem_violacao_de_csp_ate_aqui(page):
     assert page.js_errors == []
     assert not [m for m in page.problems if "Content Security Policy" in m or "Refused" in m]
@@ -299,6 +318,7 @@ def test_10_nenhuma_excecao_de_js_nem_violacao_de_csp_ate_aqui(page):
 
 def test_11_sair_e_voltar_exige_login_e_excluir_conta_apaga_tudo(page, server):
     base, repo = server
+    nav(page, "Conta")
     page.get_by_role("button", name="Sair").click()
     page.wait_for_selector("form #email")
     page.fill("#email", EMAIL)

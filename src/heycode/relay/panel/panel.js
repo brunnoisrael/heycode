@@ -36,6 +36,7 @@ const ICONS = {
   command: "M5 6l6 6-6 6M13 18h6",
   pair: "M10.5 13.5a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7l-1 1M13.5 10.5a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7l1-1",
   account: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5a7.5 7.5 0 0 1 15 0",
+  heart: "M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7.2a4.3 4.3 0 0 1 7.5 2.6C19.5 15.4 12 20 12 20z",
 };
 function icon(name) {
   const NS = "http://www.w3.org/2000/svg";
@@ -87,8 +88,8 @@ const MSG = {
   credenciais: "E-mail ou senha incorretos.", "credenciais invalidas": "E-mail ou senha incorretos.",
   email_taken: "Esse e-mail já tem conta.", weak_password: "A senha precisa de pelo menos 10 caracteres.",
   invalid_email: "E-mail inválido.", "muitas tentativas": "Muitas tentativas. Aguarde um minuto.",
-  name_taken: "Já existe um comando com esse nome ou apelido.", quota_commands: "Limite de 30 comandos atingido.",
-  quota_installations: "Limite de 2 computadores por conta.", offline: "O computador está offline.",
+  name_taken: "Já existe um comando com esse nome ou apelido.", quota_commands: "Limite de comandos do seu nível atingido. Veja “Plano e apoio”.",
+  quota_installations: "Limite de computadores do seu nível atingido. Veja “Plano e apoio”.", offline: "O computador está offline.",
 };
 const say = (e) => MSG[e.detail] || (e.status === 422 ? "Confira os campos: algum valor é inválido." : "Algo deu errado (" + e.detail + ").");
 
@@ -114,6 +115,7 @@ const KIND = {
   "painel:revogar_dispositivo": "Painel: revogou um dispositivo", "painel:instalacao_padrao": "Painel: computador padrão",
   "painel:revogar_computador": "Painel: removeu um computador", "painel:renomear_computador": "Painel: renomeou um computador",
   "painel:criar_atalho": "Painel: criou um atalho", "painel:editar_atalho": "Painel: editou um atalho",
+  "painel:interesse_apoio": "Painel: pedido de apoio", "dono:conceder_nivel": "Nível de apoio concedido",
   "painel:apagar_atalho": "Painel: apagou um atalho", "painel:desligar_comando": "Painel: desligou um comando do computador",
 };
 const RESULT = {
@@ -441,6 +443,41 @@ async function viewAccount() {
       }, text: "Excluir minha conta" })))));
 }
 
+// Niveis de apoio (ADR 0059): contribuicao voluntaria. O painel so mostra e anota o interesse; nao ha cobranca.
+async function viewPlan() {
+  const p = await api("GET", "/v1/plan");
+  const USE = { installations: "Computadores pareados", shortcuts: "Comandos de voz", daily_quota: "Pedidos à Alexa hoje" };
+  const SOON = ["Aviso da Alexa quando o agente termina", "Resumo matinal por voz"];
+  const meter = (k) => {
+    const used = p.usage[k], max = p.limits[k];
+    const bar = h("div", { class: "meter" + (used >= max ? " full" : ""), role: "meter", "aria-label": USE[k], "aria-valuemin": "0", "aria-valuemax": String(max), "aria-valuenow": String(used) }, h("span"));
+    bar.firstChild.style.width = Math.min(100, Math.round((used / max) * 100)) + "%";
+    return h("div", { class: "usage" }, h("div", { class: "row" }, h("span", { class: "grow name", text: USE[k] }), h("span", { class: "meta num", text: used + " de " + max })), bar);
+  };
+  const want = async (tier) => {
+    try { await api("PUT", "/v1/plan/interest", { tier }); toast(tier ? "Anotado. Falamos com você pelo e-mail da conta." : "Pedido retirado."); render(); } catch (e) { toast(say(e)); }
+  };
+  const tier = (t) => {
+    const mine = t.key === p.plan, asked = t.key === p.interest, paid = t.suggested > 0;
+    return h("article", { class: "card tier" + (mine ? " current" : "") },
+      h("div", { class: "row" }, h("h2", { class: "grow", text: t.name }), mine ? h("span", { class: "badge ok", text: "seu nível" }) : asked ? h("span", { class: "badge warn", text: "pedido feito" }) : null),
+      h("div", { class: "price" }, paid ? "R$ " + t.suggested : "R$ 0", h("small", { text: paid ? "contribuição sugerida por mês" : "sem contribuição" })),
+      h("p", { class: "meta", text: t.tagline }),
+      h("ul", { class: "perks" },
+        h("li", { text: t.installations + " computadores" }), h("li", { text: t.shortcuts + " comandos de voz" }), h("li", { text: t.daily_quota + " pedidos por dia" }),
+        paid ? SOON.map((s) => h("li", { class: "soon", text: s + " (em construção)" })) : null),
+      !paid || mine ? null : h("div", { class: "card-foot" }, asked
+        ? h("button", { onclick: () => want(null), text: "Retirar pedido" })
+        : h("button", { class: "primary", onclick: () => want(t.key), text: "Quero apoiar como " + t.name })));
+  };
+  const current = p.tiers.find((t) => t.key === p.plan) || p.tiers[0];
+  return page({ title: "Plano e apoio", eyebrow: "Você" },
+    "O HeyCode é mantido por uma pessoa e não vende assinatura. Quem quiser ajuda a manter o serviço no ar e, como agradecimento, ganha limites maiores.",
+    h("section", { class: "card" }, h("h2", { text: "Seu uso no nível " + current.name }), Object.keys(USE).map(meter)),
+    h("h2", { text: "Níveis" }), h("div", { class: "tiers" }, p.tiers.map(tier)),
+    h("p", { class: "meta", text: "Ainda não recebemos contribuições pelo site: ao pedir, você entra na lista e o nível é liberado manualmente." }));
+}
+
 // ---------- entrada ----------
 function viewAuth() {
   let mode = "login";
@@ -477,6 +514,7 @@ const ROUTES = {
   "#/rastro": ["Rastro", viewAudit, "trail", "Operação"],
   "#/comandos": ["Comandos", viewCommands, "command", "Automação"],
   "#/parear": ["Parear", viewPair, "pair", "Automação"],
+  "#/plano": ["Plano e apoio", viewPlan, "heart", "Você"],
   "#/conta": ["Conta", viewAccount, "account", "Você"],
 };
 const HOME = "#/inicio";
