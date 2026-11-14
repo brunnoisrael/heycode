@@ -1,0 +1,14 @@
+[Unit]
+Description=HeyCode: portas 80 e 443 abertas so para a Cloudflare (ADR 0058)
+# as regras vivem na cadeia DOCKER-USER, que o Docker recria a cada inicio: por isso roda depois dele
+After=docker.service
+Requires=docker.service
+PartOf=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/bash /opt/heycode/infra/vps/cloudflare-firewall.sh apply
+
+[Install]
+WantedBy=multi-user.target docker.service
