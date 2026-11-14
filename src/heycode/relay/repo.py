@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS audit (
 CREATE INDEX IF NOT EXISTS audit_account ON audit (account_id, id);
 CREATE TABLE IF NOT EXISTS usage (
   account_id TEXT NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL, PRIMARY KEY (account_id, day));
+CREATE TABLE IF NOT EXISTS plans (
+  account_id TEXT PRIMARY KEY, plan TEXT NOT NULL DEFAULT 'livre', interest TEXT, updated REAL NOT NULL);
 """
 
 
@@ -162,6 +164,37 @@ class SqliteRepository:
                 (account_id, day),
             )
             return self._db.execute("SELECT n FROM usage WHERE account_id=? AND day=?", (account_id, day)).fetchone()[0]
+
+    def get_usage(self, account_id: str, day: str) -> int:
+        with self._lock:
+            row = self._db.execute("SELECT n FROM usage WHERE account_id=? AND day=?", (account_id, day)).fetchone()
+        return row[0] if row else 0
+
+    # niveis de apoio (ADR 0059): o nivel so muda por comando no servidor; o interesse, pela propria conta
+    def get_plan(self, account_id: str) -> dict:
+        with self._lock:
+            row = self._db.execute("SELECT plan, interest FROM plans WHERE account_id=?", (account_id,)).fetchone()
+        return {"plan": row["plan"], "interest": row["interest"]} if row else {"plan": "livre", "interest": None}
+
+    def _set_plan_field(self, account_id: str, column: str, value: str | None, now: float) -> None:
+        with self._lock, self._db:
+            self._db.execute("INSERT OR IGNORE INTO plans (account_id, updated) VALUES (?,?)", (account_id, now))
+            self._db.execute(f"UPDATE plans SET {column}=?, updated=? WHERE account_id=?", (value, now, account_id))
+
+    def set_plan(self, account_id: str, plan: str, now: float) -> None:
+        self._set_plan_field(account_id, "plan", plan, now)  # nome de coluna fixo
+
+    def set_plan_interest(self, account_id: str, interest: str | None, now: float) -> None:
+        self._set_plan_field(account_id, "interest", interest, now)  # nome de coluna fixo
+
+    def list_plan_interest(self) -> list[dict]:
+        """Quem pediu para apoiar (uso do dono, no servidor): e-mail, nivel atual e nivel desejado."""
+        sql = (
+            "SELECT a.email, p.plan, p.interest, p.updated FROM plans p JOIN accounts a ON a.id = p.account_id"
+            " WHERE p.interest IS NOT NULL ORDER BY p.updated"
+        )
+        with self._lock:
+            return [dict(r) for r in self._db.execute(sql)]
 
     # OAuth2 (ADR 0041): tudo guardado como hash
     def put_oauth_code(
@@ -294,6 +327,7 @@ class SqliteRepository:
                 "devices",
                 "account_settings",
                 "usage",
+                "plans",
                 "oauth_tokens",
                 "oauth_codes",
             ):
