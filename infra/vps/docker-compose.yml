@@ -1,5 +1,8 @@
 # Relay HeyCode em uma VM unica (ADR 0054): o relay + o Caddy (HTTPS automatico).
 # Uso (no servidor, dentro de /opt/heycode/infra/vps):  docker compose --env-file relay.env up -d --build
+# nome fixo do projeto: os volumes viram heycode_relay_data e heycode_caddy_data (o backup.sh depende disso)
+name: heycode
+
 services:
   relay:
     build:

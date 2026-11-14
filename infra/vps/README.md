@@ -1,6 +1,6 @@
 # Relay em uma VM (Oracle Always Free ou qualquer Ubuntu 24.04)
 
-Decisão e riscos: ADR 0054. Estado: pacote **pronto para uso, ainda não validado numa VM real** até a primeira instalação; o roteiro abaixo é o que será conferido nela.
+Decisão e riscos: ADR 0054. Estado: **validado numa VM real** (Oracle Always Free, Ubuntu 24.04, 1 GB): preparo do servidor, construção da imagem, relay saudável com sistema de arquivos somente leitura e uso de ~43 MB de memória, e backup agendado com arquivo verificado. Ainda **não validado**: o HTTPS do Caddy (depende do DNS) e a restauração a partir do backup.
 
 ## 1. Preparar o servidor (uma vez)
 
@@ -29,11 +29,15 @@ docker compose ps && curl -fsS https://staging-api.heycode.dev.br/health
 
 ## 4. Backup (obrigatório, com cópia externa)
 
+A imagem mínima do Ubuntu não tem `cron`: o backup diário (03:17) roda por um **timer do systemd**, instalado como administrador (usuário `ubuntu`, que tem `sudo`; o `deploy` não tem):
+
 ```bash
-crontab -e   # 17 3 * * * BACKUP_REMOTE=meu-remote:heycode /opt/heycode/infra/vps/backup.sh >>/var/log/heycode-backup.log 2>&1
+sudo install -m 644 /opt/heycode/infra/vps/heycode-backup.service /opt/heycode/infra/vps/heycode-backup.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now heycode-backup.timer
+sudo systemctl start heycode-backup.service && journalctl -u heycode-backup.service -n 5 --no-pager   # teste agora
 ```
 
-Configure um destino fora da VM (`rclone config`, por exemplo Backblaze B2 ou um bucket privado). Teste a restauração (`docs/runbooks/restauracao-do-banco.md`) antes de confiar.
+Cada execução grava `relay-AAAAMMDDTHHMMSSZ.db.gz` (modo 600) em `/var/backups/heycode`, valida que o arquivo abre e tem as tabelas e guarda os 14 mais recentes. **O backup só local não conta.** Para copiar para fora, instale e configure o `rclone` (por exemplo Backblaze B2 ou um bucket privado) e crie `/opt/heycode/infra/vps/backup.env` (modo 600) com `BACKUP_REMOTE=meu-remote:heycode`. Teste a restauração (`docs/runbooks/restauracao-do-banco.md`) antes de confiar.
 
 ## 5. Operação
 

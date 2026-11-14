@@ -11,9 +11,10 @@ STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$DEST/relay-$STAMP.db"
 mkdir -p "$DEST"
 umask 077
+trap 'rm -f "$FILE"' ERR # nunca deixa um backup parcial ou vazio para tras
 
 # executa dentro de uma copia efemera da imagem do relay, lendo o mesmo volume
-docker run --rm \
+docker run --rm -i --user "$(id -u):$(id -g)" \
   -v heycode_relay_data:/data:ro \
   -v "$DEST":/out \
   --entrypoint python heycode-relay:local - "$STAMP" <<'PY'
@@ -33,6 +34,7 @@ assert {"accounts", "installations"} <= names, names
 PY
 
 gzip -f "$FILE"
+chmod 600 "$FILE.gz"
 ls -1t "$DEST"/relay-*.db.gz 2>/dev/null | tail -n +"$((KEEP + 1))" | xargs -r rm -f
 
 if [ -n "${BACKUP_REMOTE:-}" ]; then
