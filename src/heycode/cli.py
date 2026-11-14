@@ -150,8 +150,11 @@ def _cmd_relay_auto(args: argparse.Namespace) -> int:
             print("Mantido desligado.")
             return 1
     relay_client.set_auto_allowed(home, args.state == "on")
-    print("Modo automático por voz LIBERADO neste computador." if args.state == "on"
-          else "Modo automático por voz bloqueado neste computador.")
+    print(
+        "Modo automático por voz LIBERADO neste computador."
+        if args.state == "on"
+        else "Modo automático por voz bloqueado neste computador."
+    )
     return 0
 
 
@@ -184,9 +187,8 @@ def _make_bridge_executor(home, config, relay_executor):
 def _cmd_connect(args: argparse.Namespace) -> int:
     import asyncio
 
-    from heycode import paths, relay_client
+    from heycode import config, paths, relay_client, relay_executor
     from heycode.identity.keys import load_private_key
-    from heycode import config, relay_executor
     from heycode.store.db import Store
 
     home = paths.home()
@@ -227,7 +229,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     checks = doctor.run_checks(dict(os.environ), paths.home())
     if args.json:
-        print(json.dumps([c.__dict__ for c in checks], ensure_ascii=False, indent=2))
+        print(json.dumps([c.__dict__ for c in checks], ensure_ascii=True, indent=2))
     else:
         layer = None
         for c in checks:
@@ -265,10 +267,19 @@ def main(argv: list[str] | None = None) -> int:
 
         return hook.run(argv[1:])
     parser = build_parser()
+    script_argv = None
+    if argv[:2] == ["command", "add"] and "--" in argv:
+        separator = argv.index("--")
+        script_argv, argv = argv[separator + 1 :], argv[:separator]
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:  # --version, --help e erros de uso
         return exc.code if isinstance(exc.code, int) else 1
+    if script_argv is not None:
+        if args.argv or not args.script:
+            print("Argumentos após -- exigem --script e não podem ser duplicados.", file=sys.stderr)
+            return 2
+        args.argv = script_argv
     if args.command is None:
         parser.print_usage()
         return 2

@@ -257,6 +257,15 @@ def test_cli_doctor_json_e_valido_e_sai_1_com_falha(tmp_path, monkeypatch, capsy
     assert any(d["status"] == "falha" for d in data)
 
 
+def test_cli_doctor_json_pode_ser_lido_com_utf8_no_windows(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("HEYCODE_HOME", str(tmp_path / "vazio"))
+    monkeypatch.setenv("BRIDGE_URL", "http://127.0.0.1:1")
+    main(["doctor", "--json"])
+    text = capsys.readouterr().out
+    assert text.isascii()
+    assert json.loads(text)[0]["name"] == "python"
+
+
 def test_cli_doctor_texto_mostra_camadas(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HEYCODE_HOME", str(tmp_path / "vazio"))
     monkeypatch.setenv("BRIDGE_URL", "http://127.0.0.1:1")
