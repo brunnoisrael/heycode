@@ -358,7 +358,11 @@ function viewAuth() {
       await boot();
     } catch (e) { err.textContent = say(e); } finally { submit.disabled = false; }
   });
-  return h("div", { class: "auth", id: "main" }, h("div", { class: "brand", text: "HeyCode" }), h("div", { class: "tabs" }, tabs), form,
+  return h("div", { class: "auth", id: "main" }, h("div", { class: "brand", text: "HeyCode" }),
+    h("div", { class: "auth-intro" }, h("p", { class: "eyebrow", text: "SEU ESPAÇO DE CONTROLE" }),
+      h("h1", { text: "Seus agentes, mais perto." }),
+      h("p", { class: "sub", text: "Acompanhe e organize seu trabalho em um só lugar." })),
+    h("div", { class: "tabs" }, tabs), form,
     h("p", { class: "meta", text: "Sua conta só guarda e-mail, o resumo do que a voz fez e as configurações do painel." }));
 }
 
