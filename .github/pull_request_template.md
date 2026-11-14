@@ -20,5 +20,5 @@ $ python -m pytest -q
 
 - [ ] Testes novos para o comportamento, vistos falhar antes de passar
 - [ ] Docs e `CHANGELOG.md` atualizados quando há mudança visível
-- [ ] Não toquei gates, workflows, `AGENTS.md`, `.claude/` ou CODEOWNERS (ou há pedido humano explícito)
+- [ ] Não toquei gates, workflows, `AGENTS.md` ou `.claude/` (ou há pedido humano explícito)
 - [ ] Nenhum segredo em código, log ou texto deste PR

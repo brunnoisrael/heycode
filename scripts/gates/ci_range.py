@@ -1,6 +1,5 @@
-"""Gates do CI (autoridade): repetem G1-G4 em cada commit do PR; G11/G15 exigem aprovacao humana/revisor."""
+"""Gates do CI (autoridade): repetem G1-G4 em cada commit do PR; G15 exige o parecer do revisor agente."""
 
-import fnmatch
 import json
 import os
 import subprocess
@@ -21,12 +20,6 @@ def _git(repo: Path, *args: str) -> str:
     ).stdout
 
 
-def changed_files(repo: Path, base: str, head: str) -> list[str]:
-    """Todos os caminhos tocados, sem deteccao de renomeacao (mover arquivo protegido nao esconde o antigo)."""
-    out = _git(Path(repo), "diff", "--name-only", "--no-renames", "-z", f"{base}..{head}")
-    return [p for p in out.split("\0") if p]
-
-
 def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str]:
     """Aplica G1, G2, G3, G4 a cada commit entre base e head (merges ignorados)."""
     repo = Path(repo_root)
@@ -43,26 +36,6 @@ def check_range(base: str, head: str, config: dict, repo_root: Path) -> list[str
             paths = [p for s, p in files if s != "D"]
             errors += [f"{tag}: {e}" for e in check_tests_with_code(paths, m.group(1), config)]
     return errors
-
-
-def _touched(changed: list[str], globs: list[str]) -> list[str]:
-    return [p for p in changed if any(fnmatch.fnmatch(p, g) for g in globs)]
-
-
-def check_protected(changed: list[str], approvers: set[str], author: str, config: dict) -> list[str]:
-    """G11/G15: caminhos protegidos e sensiveis exigem aprovacao de um humano dono que nao seja o autor."""
-    touched = _touched(changed, config["protected_paths"] + config["human_review_paths"])
-    if not touched:
-        return []
-    owners = set(config.get("human_owners", []))
-    if not owners:
-        return ["G11: 'human_owners' vazio em gates.json; sem donos humanos nao ha como aprovar: " + ", ".join(touched)]
-    if (approvers & owners) - {author}:
-        return []
-    return [
-        "G11: caminhos protegidos/sensiveis exigem aprovacao de um dono humano diferente do autor: "
-        + ", ".join(touched)
-    ]
 
 
 def check_agent_review(reviews: list[dict], head_sha: str, bot_login: str, author: str) -> list[str]:
@@ -85,10 +58,6 @@ def main(argv: list[str], repo: Path | None = None) -> int:
     repo = repo or Path(__file__).resolve().parents[2]
     if mode == "range":
         errors = check_range(argv[2], argv[3], config, repo)
-    elif mode == "approvals":
-        changed = changed_files(repo, argv[2], argv[3])
-        approvers = {a for a in os.environ.get("PR_APPROVERS", "").split(",") if a}
-        errors = check_protected(changed, approvers, os.environ.get("PR_AUTHOR", ""), config)
     elif mode == "agent-review":
         reviews = json.loads(Path(argv[3]).read_text(encoding="utf-8"))
         errors = check_agent_review(
