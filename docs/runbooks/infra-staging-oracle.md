@@ -65,3 +65,4 @@ Consulte `cat /opt/heycode/VERSION` para identificar o último deploy concluído
 - 1 GB de RAM: o relay usa ~43 MB, o build da imagem usa o swap de 2 GB. Se o uso crescer, migrar (o Compose roda em qualquer Ubuntu).
 - A restauração do backup **nunca foi testada** (`docs/runbooks/restauracao-do-banco.md`).
 - Instância única: sem alta disponibilidade (o componente local reconecta sozinho quando o relay volta).
+- O limite de tentativas de confirmação de senha para exclusão de conta é mantido em memória nesta instância; reiniciar o relay apaga a contagem. Ele não substitui uma proteção persistente e compartilhada entre instâncias.
